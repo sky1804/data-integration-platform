@@ -1,0 +1,10 @@
+node_modules
+build
+tmp
+.git
+.env
+.env.*
+!.env.example
+*.log
+.idea
+.vscode

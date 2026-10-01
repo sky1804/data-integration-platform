@@ -1,0 +1,71 @@
+name: data-integration-platform
+
+x-application: &application
+  image: data-integration-platform:local
+  init: true
+  env_file: .env
+  environment:
+    NODE_ENV: production
+    HOST: 0.0.0.0
+    PORT: 3333
+    DB_HOST: postgres
+    DB_PORT: 5432
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    QUEUE_DRIVER: redis
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  stop_grace_period: 30s
+
+services:
+  api:
+    <<: *application
+    build:
+      context: .
+      target: production
+    command: ['node', 'bin/server.js']
+    ports:
+      - '127.0.0.1:${PORT:-3333}:3333'
+
+  worker:
+    <<: *application
+    pull_policy: never
+    command: ['node', 'ace.js', 'queue:work']
+
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: ${DB_USER:?DB_USER is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: ${DB_DATABASE:?DB_DATABASE is required}
+    ports:
+      - '127.0.0.1:${DB_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7.4-bookworm
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '127.0.0.1:${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  redis_data:

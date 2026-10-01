@@ -1,0 +1,83 @@
+{
+  "name": "data-integration-platform",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "node bin/server.js",
+    "build": "node ace build",
+    "dev": "node ace serve --watch",
+    "test": "node ace test",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit",
+    "worker": "node ace queue:work",
+    "format:check": "prettier --check ."
+  },
+  "imports": {
+    "#controllers/*": "./app/controllers/*.js",
+    "#exceptions/*": "./app/exceptions/*.js",
+    "#models/*": "./app/models/*.js",
+    "#mails/*": "./app/mails/*.js",
+    "#services/*": "./app/services/*.js",
+    "#listeners/*": "./app/listeners/*.js",
+    "#generated/*": "./.adonisjs/server/*.js",
+    "#events/*": "./app/events/*.js",
+    "#middleware/*": "./app/middleware/*.js",
+    "#validators/*": "./app/validators/*.js",
+    "#providers/*": "./providers/*.js",
+    "#policies/*": "./app/policies/*.js",
+    "#abilities/*": "./app/abilities/*.js",
+    "#database/*": "./database/*.js",
+    "#start/*": "./start/*.js",
+    "#tests/*": "./tests/*.js",
+    "#transformers/*": "./app/transformers/*.js",
+    "#config/*": "./config/*.js"
+  },
+  "devDependencies": {
+    "@adonisjs/assembler": "^8.5.0",
+    "@adonisjs/eslint-config": "^3.1.0",
+    "@adonisjs/prettier-config": "^1.5.0",
+    "@adonisjs/tsconfig": "^2.0.0",
+    "@japa/api-client": "^3.2.1",
+    "@japa/assert": "^4.2.0",
+    "@japa/plugin-adonisjs": "^5.2.0",
+    "@japa/runner": "^5.3.0",
+    "@poppinss/ts-exec": "^1.4.4",
+    "@types/luxon": "^3.7.6",
+    "@types/node": "^24.19.0",
+    "eslint": "^10.9.1",
+    "hot-hook": "^1.0.0",
+    "pino-pretty": "^13.1.3",
+    "prettier": "^3.9.6",
+    "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "@adonisjs/core": "^7.5.0",
+    "@adonisjs/lucid": "^22.4.2",
+    "@adonisjs/queue": "0.6.2",
+    "@adonisjs/redis": "^10.0.2",
+    "luxon": "^3.7.2",
+    "pg": "^8.23.1",
+    "reflect-metadata": "^0.2.2"
+  },
+  "bundleDependencies": [
+    "@adonisjs/core",
+    "reflect-metadata"
+  ],
+  "hotHook": {
+    "boundaries": [
+      "./app/controllers/**/*.ts",
+      "./app/middleware/*.ts"
+    ]
+  },
+  "eslintConfig": {
+    "extends": "@adonisjs/eslint-config/app"
+  },
+  "prettier": "@adonisjs/prettier-config",
+  "engines": {
+    "node": "24.x",
+    "npm": ">=11"
+  }
+}
