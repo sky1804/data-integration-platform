@@ -8,7 +8,7 @@ RUN npm ci
 FROM dependencies AS development
 COPY . .
 EXPOSE 3333
-CMD ["node", "ace", "serve", "--watch"]
+CMD ["node", "ace", "serve", "--hmr", "--poll"]
 
 FROM dependencies AS build
 COPY . .

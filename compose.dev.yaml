@@ -6,7 +6,7 @@ services:
       target: development
     environment:
       NODE_ENV: development
-    command: ['node', 'ace', 'serve', '--watch']
+    command: ['node', 'ace', 'serve', '--hmr', '--poll']
     volumes:
       - .:/app
       - api_node_modules:/app/node_modules

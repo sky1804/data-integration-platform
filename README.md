@@ -46,11 +46,15 @@ npm run dev
 Run `npm run worker` in a separate terminal when needed. Avoid starting a local
 API and the Compose API on the same port.
 
-For container development with source watching:
+For container development with HMR and filesystem polling:
 
 ```sh
 docker compose -f compose.yaml -f compose.dev.yaml up --build
 ```
+
+The development commands use `node ace serve --hmr --poll`. HMR reloads supported
+modules, and polling detects source changes across Docker bind mounts, as described
+in the [AdonisJS command reference](https://docs.adonisjs.com/reference/commands#serve).
 
 This uses the Dockerfile's development stage and mounts the source. Linux
 dependencies have separate named volumes, so host `node_modules` are not used.
