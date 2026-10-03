@@ -1,8 +1,9 @@
 # Data Integration & Reconciliation Platform
 
-M0: an API-only AdonisJS 7 foundation on Node.js 24. There are no domain models,
-connectors, jobs, schedules, authentication, or frontend. Later milestones require
-an explicit architectural review before implementation.
+An API-only AdonisJS 7 application on Node.js 24. M0 established the infrastructure;
+M1 adds `Integration`, `SyncRun`, and historical `SourceRecord` persistence.
+There are no connectors, jobs, schedules, authentication, or frontend. See
+[the synchronization lifecycle](docs/sync-lifecycle.md) for M1 decisions.
 
 ## Quick start
 
@@ -40,6 +41,7 @@ and Redis connections; Compose overrides these hosts with internal service names
 ```sh
 npm ci
 docker compose up -d postgres redis
+node ace migration:run
 npm run dev
 ```
 
@@ -64,7 +66,18 @@ and the equivalent command for `worker`.
 
 ## Verification
 
-With PostgreSQL and Redis running:
+With PostgreSQL and Redis running, create the isolated test database once:
+
+```sh
+docker compose exec -T postgres createdb -U platform data_integration_test
+```
+
+Use your configured `DB_USER` and `DB_TEST_DATABASE` if they differ from the
+example. An existing database does not need to be recreated. Tests automatically
+select `DB_TEST_DATABASE` when `NODE_ENV=test`; no `.env.test` file is required.
+The test database must end in `_test` and differ from `DB_DATABASE`.
+
+Then run:
 
 ```sh
 npm test
@@ -77,8 +90,11 @@ docker compose ps
 docker compose logs api worker
 ```
 
-Japa functional tests exercise the HTTP response, PostgreSQL `SELECT 1` via Lucid,
-and Redis `PING` via `@adonisjs/redis`. They do not create tables or modify data.
+Japa retains the M0 HTTP/PostgreSQL/Redis bootstrap checks and adds M1 persistence,
+relationship, default, uniqueness, foreign-key, and JSONB history checks. Runner
+setup migrates the test database and cleanup rolls back its migrations. Each
+persistence test runs in a global transaction rolled back after the test.
+Development data is not used by tests. See [test isolation](docs/sync-lifecycle.md#test-isolation).
 Tests start their own HTTP server; run them with the API stopped or with another
 `PORT`, for example `PORT=3334 npm test` (PowerShell: `$env:PORT=3334; npm test`).
 
@@ -96,7 +112,11 @@ The production image intentionally omits development dependencies and test tooli
 - The [slim starter linked by the AdonisJS 7 documentation](https://docs.adonisjs.com/installation)
   supplies the conventional single-application structure. The official API starter
   includes frontend and authentication scaffolding outside M0's scope.
-- Lucid uses PostgreSQL and the `pg` driver. No migrations or models are defined.
+- Lucid uses PostgreSQL and the `pg` driver. M1 models extend its generated schema
+  classes. Run `node ace migration:run` for development or
+  `docker compose exec api node ace.js migration:run --force --no-schema-generate`
+  for the compiled Compose application. Schema generation belongs to the
+  development workflow; the production container consumes the committed schema.
 - Queue uses the named `main` Redis connection and runs in a separate process,
   following the [current Queue guide](https://docs.adonisjs.com/guides/digging-deeper/queues).
   `@adonisjs/queue` is pinned to **0.6.2** because its API is experimental.
@@ -117,3 +137,5 @@ The production image intentionally omits development dependencies and test tooli
   application health endpoints and observability work remain deferred.
 
 See [the M0 validation record](docs/m0-validation.md) for executed checks.
+See [the M1 completion and validation record](docs/m1-validation.md) for persistence
+files, constraints, isolation, tests, commands, and remaining tradeoffs.
