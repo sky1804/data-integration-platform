@@ -2,8 +2,8 @@
 
 Validated on 2026-10-02 (America/Sao_Paulo). M1 implements persistence only;
 the [lifecycle document](sync-lifecycle.md) records domain semantics and decisions.
-M2 has not started. M1 is committed locally, separately from the HMR/polling
-change; the M1 commit has not been pushed.
+This is the validation snapshot for M1, implemented in commit `e0ecd16` separately
+from the HMR/polling change. M2 has not started.
 
 ## Files
 
@@ -108,9 +108,8 @@ npm test
 ```
 
 The final development migration was applied once, without development rollback.
-The first test migration attempt exposed a mistaken table-level `checkIn` call;
-it was corrected to the documented column modifier, the partial batch was rolled
-back, and the full clean cycle then passed.
+The status constraint uses the documented column-level `checkIn` modifier. The
+full clean migration cycle passed.
 
 Other validation commands:
 
@@ -159,8 +158,10 @@ persisted without cross-field accounting rules. Test cleanup resets the entire
 isolated test schema; that database is disposable and not shared with unrelated
 data or concurrent test runs.
 
-Unresolved: npm reported **13 high-severity dependency audit findings** during
-production dependency installation. Existing package versions and the lockfile
-were retained; remediation is outside this persistence milestone. The existing
-local PostgreSQL port override (`55432`) remains. The no-jobs startup warning is
-expected because M1 still defines no jobs.
+Unresolved: npm reported **13 affected production packages rated high** during
+dependency installation. The 2026-10-03 review traced them to one `braces@3.0.3`
+advisory propagated through dependent packages; see
+[the dependency security review](dependency-security.md) for the package list and
+remediation status. Existing versions and the lockfile were retained. The local
+PostgreSQL port override (`55432`) remains. The no-jobs startup warning is expected
+because M1 still defines no jobs.

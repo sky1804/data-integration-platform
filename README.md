@@ -21,6 +21,15 @@ The API is at <http://localhost:3333/> and returns JSON. The worker runs
 An idle worker is expected because M0 defines no jobs.
 The package's "No jobs found" startup warning is expected at this milestone.
 
+After the services start, apply the M1 tables from a second terminal:
+
+```sh
+docker compose exec -T api node ace.js migration:run --force --no-schema-generate
+```
+
+Startup does not run migrations automatically. This command targets the normal
+application database; tests use a separate database described below.
+
 PostgreSQL and Redis have health checks; both application services wait for healthy
 dependencies. Database and Redis data persist in named volumes. Published ports
 are bound to localhost. Stop the stack with `docker compose down` (retains data).
@@ -52,6 +61,12 @@ For container development with HMR and filesystem polling:
 
 ```sh
 docker compose -f compose.yaml -f compose.dev.yaml up --build
+```
+
+Apply development migrations from a second terminal:
+
+```sh
+docker compose -f compose.yaml -f compose.dev.yaml exec -T api node ace migration:run
 ```
 
 The development commands use `node ace serve --hmr --poll`. HMR reloads supported
@@ -92,9 +107,11 @@ docker compose logs api worker
 
 Japa retains the M0 HTTP/PostgreSQL/Redis bootstrap checks and adds M1 persistence,
 relationship, default, uniqueness, foreign-key, and JSONB history checks. Runner
-setup migrates the test database and cleanup rolls back its migrations. Each
+setup migrates the test database and cleanup resets all its applied migrations. Each
 persistence test runs in a global transaction rolled back after the test.
 Development data is not used by tests. See [test isolation](docs/sync-lifecycle.md#test-isolation).
+The test database is disposable; do not share it with unrelated data or concurrent
+test runs.
 Tests start their own HTTP server; run them with the API stopped or with another
 `PORT`, for example `PORT=3334 npm test` (PowerShell: `$env:PORT=3334; npm test`).
 
@@ -139,3 +156,5 @@ The production image intentionally omits development dependencies and test tooli
 See [the M0 validation record](docs/m0-validation.md) for executed checks.
 See [the M1 completion and validation record](docs/m1-validation.md) for persistence
 files, constraints, isolation, tests, commands, and remaining tradeoffs.
+See [the dependency security review](docs/dependency-security.md) for the dated npm
+audit, affected packages, and available remediation status.

@@ -41,6 +41,16 @@ hooks, or database triggers. The status column is a required string with a check
 constraint limiting it to the five supported values; the model narrows its type
 to the same values. Callers must supply the status explicitly.
 
+The migration chains `checkIn(...)` on the status column builder, as documented
+by [Lucid's check constraints reference](https://lucid.adonisjs.com/docs/table-builder#checkin-and-checknotin):
+
+```ts
+table.string('status').notNullable().checkIn(['PENDING', 'RUNNING', 'SUCCESS', 'PARTIAL', 'FAILED'])
+```
+
+This creates a PostgreSQL check constraint on a varchar column. It restricts
+status values; it does not enforce transitions or terminal-state immutability.
+
 ## Historical observations
 
 Source records are conceptually append-only. A shipment observed as `IN_TRANSIT`
@@ -84,11 +94,13 @@ opening a connection. Test migrations and cleanup cannot silently target the
 normal development database through this configuration.
 
 Create the dedicated database once using the README command. Japa uses
-`testUtils.db().migrate()` at runner setup; its returned cleanup rolls back test
-migrations after the suite. Each persistence test uses
+`testUtils.db().migrate()` at runner setup; its returned cleanup runs
+`migration:reset`, reverting all applied migrations in the isolated database
+after the suite. Each persistence test uses
 `testUtils.db().wrapInGlobalTransaction()` and its automatic rollback. These are
 the [current Lucid test utilities](https://lucid.adonisjs.com/docs/testing).
-The test database is disposable and should not contain unrelated data.
+The test database is disposable and should not contain unrelated data. Run tests
+sequentially against it; concurrent processes need separate test databases.
 
 The helper disables schema generation during test migration and reset, so test
 cleanup cannot erase the committed generated schema file. Generate that file

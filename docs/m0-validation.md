@@ -2,6 +2,10 @@
 
 Validation date: 2026-10-01 (America/Sao_Paulo).
 
+This is a historical M0 snapshot. Current persistence and test setup are described
+in the README and M1 documents; current dependency findings are tracked in
+[the dependency security review](dependency-security.md).
+
 ## Inspected before editing
 
 The workspace was empty. Generated the documented slim starter with
