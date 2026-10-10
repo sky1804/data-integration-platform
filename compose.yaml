@@ -13,6 +13,7 @@ x-application: &application
     REDIS_HOST: redis
     REDIS_PORT: 6379
     QUEUE_DRIVER: redis
+    CARRIER_API_URL: http://carrier-mock:4001
   depends_on:
     postgres:
       condition: service_healthy
@@ -34,6 +35,28 @@ services:
     <<: *application
     pull_policy: never
     command: ['node', 'ace.js', 'queue:work']
+
+  carrier-mock:
+    build:
+      context: ./mocks/carrier
+    init: true
+    environment:
+      CARRIER_API_TOKEN: ${CARRIER_API_TOKEN:?CARRIER_API_TOKEN is required}
+      CARRIER_MOCK_SLOW_MS: 5000
+    ports:
+      - '127.0.0.1:4001:4001'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   postgres:
     image: postgres:17-bookworm

@@ -94,7 +94,7 @@ opening a connection. Test migrations and cleanup cannot silently target the
 normal development database through this configuration.
 
 Create the dedicated database once using the README command. Japa uses
-`testUtils.db().migrate()` at runner setup; its returned cleanup runs
+`testUtils.db().migrate()` at functional suite setup; its returned cleanup runs
 `migration:reset`, reverting all applied migrations in the isolated database
 after the suite. Each persistence test uses
 `testUtils.db().wrapInGlobalTransaction()` and its automatic rollback. These are
@@ -109,8 +109,10 @@ it to preserve the generator's output.
 
 ## Deferred work
 
-External API calls, connectors, synchronization orchestration, jobs, scheduling,
-endpoints, locks, retries, pagination, normalization, shipments, reconciliation,
-manual reprocessing, authentication, frontend, and CI/CD remain out of scope.
+For M1, external HTTP calls and pagination were deferred. M2 implements those in
+the separate [Carrier provider](carrier-provider.md), without connecting them to
+these models. Synchronization orchestration, generic connectors, jobs, scheduling,
+endpoints, locks, retries, normalization, shipments, reconciliation,
+manual reprocessing, authentication, frontend, and CI/CD remain deferred.
 Lifecycle enforcement, full idempotency, retention, and append-only protection
-also remain deferred. M2 requires explicit instruction.
+also remain deferred. M3 requires explicit instruction.

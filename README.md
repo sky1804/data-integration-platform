@@ -2,8 +2,11 @@
 
 An API-only AdonisJS 7 application on Node.js 24. M0 established the infrastructure;
 M1 adds `Integration`, `SyncRun`, and historical `SourceRecord` persistence.
-There are no connectors, jobs, schedules, authentication, or frontend. See
-[the synchronization lifecycle](docs/sync-lifecycle.md) for M1 decisions.
+M2 adds a simulated Carrier API and a concrete HTTP client with pagination,
+Bearer authentication, timeout, validation, and classified provider errors.
+The client does not persist records. There are no synchronization jobs, schedules,
+authentication for our API, or frontend. See [the synchronization lifecycle](docs/sync-lifecycle.md)
+and [the Carrier provider](docs/carrier-provider.md) for decisions and usage.
 
 ## Quick start
 
@@ -18,7 +21,7 @@ docker compose up --build
 PowerShell: use `Copy-Item .env.example .env` for the first command.
 The API is at <http://localhost:3333/> and returns JSON. The worker runs
 `node ace.js queue:work` in a separate container using the same production image.
-An idle worker is expected because M0 defines no jobs.
+An idle worker is expected because no synchronization jobs are registered yet.
 The package's "No jobs found" startup warning is expected at this milestone.
 
 After the services start, apply the M1 tables from a second terminal:
@@ -49,7 +52,7 @@ and Redis connections; Compose overrides these hosts with internal service names
 
 ```sh
 npm ci
-docker compose up -d postgres redis
+docker compose up -d postgres redis carrier-mock
 node ace migration:run
 npm run dev
 ```
@@ -106,8 +109,9 @@ docker compose logs api worker
 ```
 
 Japa retains the M0 HTTP/PostgreSQL/Redis bootstrap checks and adds M1 persistence,
-relationship, default, uniqueness, foreign-key, and JSONB history checks. Runner
-setup migrates the test database and cleanup resets all its applied migrations. Each
+relationship, default, uniqueness, foreign-key, and JSONB history checks. M2 adds
+local HTTP and payload validation tests. Functional suite setup migrates the test
+database and cleanup resets all its applied migrations. Each
 persistence test runs in a global transaction rolled back after the test.
 Development data is not used by tests. See [test isolation](docs/sync-lifecycle.md#test-isolation).
 The test database is disposable; do not share it with unrelated data or concurrent
@@ -158,3 +162,10 @@ See [the M1 completion and validation record](docs/m1-validation.md) for persist
 files, constraints, isolation, tests, commands, and remaining tradeoffs.
 See [the dependency security review](docs/dependency-security.md) for the dated npm
 audit, affected packages, and available remediation status.
+
+Carrier's mock is published at <http://127.0.0.1:4001/health>; the application uses
+`http://carrier-mock:4001` inside Compose. Existing local `.env` files need the
+three `CARRIER_API_*` values shown in `.env.example`. The mock uses the configured
+demo token. It has a health check but does not gate application startup. Run
+`node ace test unit` for Carrier tests without PostgreSQL or Redis. See
+[M2 validation](docs/m2-validation.md) for executed checks and remaining tradeoffs.
