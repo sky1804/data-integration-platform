@@ -1,8 +1,9 @@
 # Carrier provider — M2
 
 M2 implements HTTP communication only. `CarrierClient` does not import Lucid,
-create synchronization records, normalize values, enqueue jobs, or retry. M3 will
-decide how to iterate pages and persist observations. There is no shared connector
+create synchronization records, normalize values, enqueue jobs, or retry. M3's
+[SyncEngine](sync-engine.md) now owns page iteration and observation persistence.
+There is no shared connector
 interface while only one provider exists.
 
 ## Contract and configuration

@@ -26,18 +26,20 @@ PENDING → RUNNING → SUCCESS
                  → FAILED
 ```
 
-| Status  | Meaning                                                                                                   |
-| ------- | --------------------------------------------------------------------------------------------------------- |
-| PENDING | Execution exists; processing has not started.                                                             |
-| RUNNING | Processing has started.                                                                                   |
-| SUCCESS | Synchronization completed and every valid received record was persisted.                                  |
-| PARTIAL | Usable data was produced, but some processing failed; for example, 500 received, 498 persisted, 2 failed. |
-| FAILED  | No reliable successful result was produced, for example after a provider request and its retries fail.    |
+| Status  | Meaning                                                                  |
+| ------- | ------------------------------------------------------------------------ |
+| PENDING | Execution exists; processing has not started.                            |
+| RUNNING | Processing has started.                                                  |
+| SUCCESS | Synchronization completed and every valid received record was persisted. |
+| PARTIAL | Execution failed after at least one SourceRecord was committed.          |
+| FAILED  | Execution failed with no SourceRecords committed.                        |
 
 `SUCCESS`, `PARTIAL`, and `FAILED` are terminal. A later manual or scheduled
 execution must create a new run, starting at `PENDING`; completed runs are not
-reused. M1 documents these transitions but does not enforce them through services,
-hooks, or database triggers. The status column is a required string with a check
+reused. M1 documented these transitions without enforcement. M3 now enforces them
+inside [SyncEngine](sync-engine.md), including start/finish timestamps and failure
+finalization. No database state-machine trigger enforces transition order, and
+direct model writes remain outside the service's enforcement. The status column is a required string with a check
 constraint limiting it to the five supported values; the model narrows its type
 to the same values. Callers must supply the status explicitly.
 
@@ -102,6 +104,11 @@ the [current Lucid test utilities](https://lucid.adonisjs.com/docs/testing).
 The test database is disposable and should not contain unrelated data. Run tests
 sequentially against it; concurrent processes need separate test databases.
 
+M3's SyncEngine group instead uses `testUtils.db().truncate()` after each test,
+allowing real page commits and separate transactions to observe persisted progress.
+M1's existing transactional groups are unchanged. Both strategies use the same
+guarded, disposable test database; no cleanup targets development tables.
+
 The helper disables schema generation during test migration and reset, so test
 cleanup cannot erase the committed generated schema file. Generate that file
 through `migration:run` or `schema:generate`, never by hand. Formatting excludes
@@ -110,9 +117,9 @@ it to preserve the generator's output.
 ## Deferred work
 
 For M1, external HTTP calls and pagination were deferred. M2 implements those in
-the separate [Carrier provider](carrier-provider.md), without connecting them to
-these models. Synchronization orchestration, generic connectors, jobs, scheduling,
+the separate [Carrier provider](carrier-provider.md). M3 connects that client to
+these models through [SyncEngine](sync-engine.md). Generic connectors, jobs, scheduling,
 endpoints, locks, retries, normalization, shipments, reconciliation,
 manual reprocessing, authentication, frontend, and CI/CD remain deferred.
-Lifecycle enforcement, full idempotency, retention, and append-only protection
-also remain deferred. M3 requires explicit instruction.
+Full idempotency, retention, database-enforced transitions and append-only protection
+also remain deferred. M4 requires explicit instruction.

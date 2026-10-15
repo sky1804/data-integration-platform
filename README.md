@@ -4,9 +4,13 @@ An API-only AdonisJS 7 application on Node.js 24. M0 established the infrastruct
 M1 adds `Integration`, `SyncRun`, and historical `SourceRecord` persistence.
 M2 adds a simulated Carrier API and a concrete HTTP client with pagination,
 Bearer authentication, timeout, validation, and classified provider errors.
-The client does not persist records. There are no synchronization jobs, schedules,
+M3 adds synchronous `SyncEngine.execute(integrationId)`, connecting the client to
+raw historical persistence with page transactions and auditable failure outcomes.
+The client itself does not persist records. There are no synchronization jobs, schedules,
 authentication for our API, or frontend. See [the synchronization lifecycle](docs/sync-lifecycle.md)
 and [the Carrier provider](docs/carrier-provider.md) for decisions and usage.
+See [the synchronization engine](docs/sync-engine.md) for direct execution,
+counter semantics, and the current concurrency limitations.
 
 ## Quick start
 
@@ -111,8 +115,9 @@ docker compose logs api worker
 Japa retains the M0 HTTP/PostgreSQL/Redis bootstrap checks and adds M1 persistence,
 relationship, default, uniqueness, foreign-key, and JSONB history checks. M2 adds
 local HTTP and payload validation tests. Functional suite setup migrates the test
-database and cleanup resets all its applied migrations. Each
-persistence test runs in a global transaction rolled back after the test.
+database and cleanup resets all its applied migrations. M1 persistence tests run
+in global transactions rolled back after each test. M3 engine tests use real page
+transactions with truncation of the isolated test database between cases.
 Development data is not used by tests. See [test isolation](docs/sync-lifecycle.md#test-isolation).
 The test database is disposable; do not share it with unrelated data or concurrent
 test runs.
@@ -169,3 +174,4 @@ three `CARRIER_API_*` values shown in `.env.example`. The mock uses the configur
 demo token. It has a health check but does not gate application startup. Run
 `node ace test unit` for Carrier tests without PostgreSQL or Redis. See
 [M2 validation](docs/m2-validation.md) for executed checks and remaining tradeoffs.
+See [M3 validation](docs/m3-validation.md) for synchronization and regression results.
