@@ -3,4 +3,6 @@
  * DO NOT EDIT manually
  */
 
-export const controllers = {}
+export const controllers = {
+  IntegrationSyncs: () => import('#controllers/integration_syncs_controller'),
+}

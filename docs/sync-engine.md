@@ -1,8 +1,10 @@
 # Synchronization engine — M3
 
 `SyncEngine` connects the concrete Carrier client to M1 raw persistence. Execution
-is synchronous and explicitly invoked; it neither dispatches jobs nor exposes an
-HTTP endpoint. Queue entrypoints belong to M4.
+is synchronous through its direct API; it neither dispatches jobs nor exposes an
+HTTP endpoint. M4's [asynchronous entrypoint](async-sync.md) now wraps it with
+`POST /integrations/:id/sync` and a thin Redis-backed job. All execution logic
+remains here, and direct execution remains available to application/test code.
 
 ```ts
 import SyncEngine from '#services/sync_engine'
@@ -136,7 +138,7 @@ A process crash can leave a RUNNING audit row; hard crashes, ambiguous database
 commit outcomes and failure to finalize during a database outage require future
 recovery policy. No global page bound is imposed on a provider returning an
 unending sequence of distinct cursors. Cycle detection covers repeated cursors.
-These tradeoffs do not introduce M4 execution/resilience behavior.
+M4 adds asynchronous invocation but does not resolve these recovery limitations.
 
 References: [Lucid transactions](https://lucid.adonisjs.com/docs/transactions),
 [Lucid testing utilities](https://lucid.adonisjs.com/docs/testing).

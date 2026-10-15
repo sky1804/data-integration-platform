@@ -6,11 +6,14 @@ M2 adds a simulated Carrier API and a concrete HTTP client with pagination,
 Bearer authentication, timeout, validation, and classified provider errors.
 M3 adds synchronous `SyncEngine.execute(integrationId)`, connecting the client to
 raw historical persistence with page transactions and auditable failure outcomes.
-The client itself does not persist records. There are no synchronization jobs, schedules,
+M4 adds `POST /integrations/:id/sync` → Redis → separate worker → SyncEngine.
+The client itself does not persist records. There are no schedules,
 authentication for our API, or frontend. See [the synchronization lifecycle](docs/sync-lifecycle.md)
 and [the Carrier provider](docs/carrier-provider.md) for decisions and usage.
 See [the synchronization engine](docs/sync-engine.md) for direct execution,
 counter semantics, and the current concurrency limitations.
+See [asynchronous synchronization](docs/async-sync.md) for the endpoint, 202 semantics,
+zero-retry job policy, and Queue versus SyncRun state.
 
 ## Quick start
 
@@ -25,8 +28,7 @@ docker compose up --build
 PowerShell: use `Copy-Item .env.example .env` for the first command.
 The API is at <http://localhost:3333/> and returns JSON. The worker runs
 `node ace.js queue:work` in a separate container using the same production image.
-An idle worker is expected because no synchronization jobs are registered yet.
-The package's "No jobs found" startup warning is expected at this milestone.
+The worker discovers `SyncIntegrationJob` and waits for manually dispatched work.
 
 After the services start, apply the M1 tables from a second terminal:
 
@@ -148,9 +150,10 @@ The production image intentionally omits development dependencies and test tooli
   `@adonisjs/queue` is pinned to **0.6.2** because its API is experimental.
   Redis **10.0.2** satisfies Queue's supported peer range and AdonisJS 7's peer range;
   Redis 11 is outside Queue 0.6.2's declared peer range.
-- The generated scheduler preload is empty; no schedules or jobs are registered.
-  Queue and worker defaults are retained. Retry policies and processing semantics
-  are deferred to later milestones.
+- The scheduler preload remains empty. M4 registers one thin synchronization job
+  with zero retries; the worker retains concurrency 5 and the Redis backend.
+  Duplicate requests can create independent runs. Job history keeps at most 100
+  completed and 100 failed entries; SyncRun remains the business audit record.
 - [AdonisJS's standalone build](https://docs.adonisjs.com/deployment) is copied into
   a Node.js 24 Debian Bookworm slim runtime with only production dependencies.
   Both application services share this image. The runtime runs as the `node` user;
@@ -175,3 +178,7 @@ demo token. It has a health check but does not gate application startup. Run
 `node ace test unit` for Carrier tests without PostgreSQL or Redis. See
 [M2 validation](docs/m2-validation.md) for executed checks and remaining tradeoffs.
 See [M3 validation](docs/m3-validation.md) for synchronization and regression results.
+See [M4 validation](docs/m4-validation.md) for asynchronous dispatch and worker checks.
+With the production image built and Compose infrastructure running,
+`npm run test:async` exercises real Redis and separate workers using a disposable
+Redis container, guarded test database, and random localhost API port.

@@ -118,8 +118,10 @@ it to preserve the generator's output.
 
 For M1, external HTTP calls and pagination were deferred. M2 implements those in
 the separate [Carrier provider](carrier-provider.md). M3 connects that client to
-these models through [SyncEngine](sync-engine.md). Generic connectors, jobs, scheduling,
-endpoints, locks, retries, normalization, shipments, reconciliation,
+these models through [SyncEngine](sync-engine.md). M4 adds the manually triggered
+[asynchronous entrypoint](async-sync.md) while preserving engine ownership of this
+lifecycle. Generic connectors, scheduled synchronization,
+query/CRUD endpoints, locks, retries, normalization, shipments, reconciliation,
 manual reprocessing, authentication, frontend, and CI/CD remain deferred.
 Full idempotency, retention, database-enforced transitions and append-only protection
-also remain deferred. M4 requires explicit instruction.
+also remain deferred. M5 requires explicit instruction.

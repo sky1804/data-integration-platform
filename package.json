@@ -9,6 +9,7 @@
     "build": "node ace build",
     "dev": "node ace serve --hmr --poll",
     "test": "node ace test",
+    "test:async": "node tests/manual/async_sync.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
@@ -17,6 +18,7 @@
   },
   "imports": {
     "#controllers/*": "./app/controllers/*.js",
+    "#jobs/*": "./app/jobs/*.js",
     "#exceptions/*": "./app/exceptions/*.js",
     "#models/*": "./app/models/*.js",
     "#mails/*": "./app/mails/*.js",
