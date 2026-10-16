@@ -7,7 +7,7 @@ POST /integrations/:id/sync → Redis Queue → separate worker
                                                ↓
                                           SyncEngine
                                                ↓
-                                  CarrierClient + PostgreSQL
+                                  Connector + PostgreSQL
 ```
 
 The request waits for enqueue acknowledgement, not synchronization. M3's engine
@@ -41,7 +41,7 @@ Errors consistently use `{ "error": { "code": "...", "message": "..." } }`:
 | Invalid ID, including out-of-range integer | 400  | `INVALID_INTEGRATION_ID`  |
 | Integration missing                        | 404  | `INTEGRATION_NOT_FOUND`   |
 | Integration disabled                       | 409  | `INTEGRATION_DISABLED`    |
-| Provider other than `carrier`              | 422  | `UNSUPPORTED_PROVIDER`    |
+| Provider other than `carrier` / `tms`      | 422  | `UNSUPPORTED_PROVIDER`    |
 | Integration lookup unavailable             | 503  | `INTEGRATION_UNAVAILABLE` |
 | Queue push rejected/unavailable            | 503  | `QUEUE_UNAVAILABLE`       |
 
@@ -63,7 +63,10 @@ async execute() {
 }
 ```
 
-It catches no engine exception. SUCCESS completes the queue job; any engine
+M5 keeps this class and payload unchanged. The worker loads Integration and the
+engine resolves CarrierConnector or TmsConnector from its current provider; no
+provider field is trusted from the queue payload. Both use this same endpoint and
+job. It catches no engine exception. SUCCESS completes the queue job; any engine
 exception fails it. Business audit finalization remains the engine's task.
 
 Installed `@adonisjs/queue` stays pinned to **0.6.2**, with locked underlying
@@ -145,7 +148,7 @@ The regular suite uses `queue.fake()` and restores it after every dispatch test.
 It verifies enqueue payloads, errors, distinct duplicate jobs, no dispatch-time
 SyncRun and no inline provider execution. Job tests use the official underlying
 FakeAdapter and `Worker.processCycle`, then restore the original manager config,
-adapter, job factory and discovery. An ephemeral local Carrier HTTP server keeps
+adapter, job factory and discovery. Ephemeral Carrier/TMS HTTP servers keep
 these tests independent of a running Compose mock. M1's isolation is unchanged;
 worker tests use M3's guarded test-database truncation strategy.
 
@@ -153,10 +156,11 @@ worker tests use M3's guarded test-database truncation strategy.
 Compose infrastructure. It creates a unique `_test` database, a disposable Redis
 container, an API on a random localhost port, and separate workers. It first
 obtains 202 while no worker exists and verifies a real Redis pending job with no
-run. It then proves completion, provider failure and queue outage behavior.
+run. It then proves completion for both providers, different raw schemas for
+SHP-100, provider failure and queue outage behavior.
 Only resource IDs created by that invocation are removed; its dedicated database
 is dropped after process cleanup. It never flushes shared Redis or writes to
 development tables, and checks development row counts before/after.
 
-See [M4 validation](m4-validation.md) for executed results and
+See [M4 validation](m4-validation.md) and [M5 validation](m5-validation.md) for executed results and
 [SyncEngine](sync-engine.md) for the unchanged business execution semantics.

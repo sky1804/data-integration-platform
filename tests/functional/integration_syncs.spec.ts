@@ -14,30 +14,32 @@ test.group('M4 synchronization dispatch endpoint', (group) => {
     return () => queue.restore()
   })
 
-  test('accepts a request and only enqueues the integration ID', async ({ client, assert }) => {
-    const integration = await Integration.create({
-      name: 'Carrier',
-      slug: 'carrier',
-      provider: 'carrier',
+  for (const provider of ['carrier', 'tms'] as const) {
+    test(`accepts ${provider} and only enqueues the integration ID`, async ({ client, assert }) => {
+      const integration = await Integration.create({
+        name: provider,
+        slug: provider,
+        provider,
+      })
+      const response = await client.post(`/integrations/${integration.id}/sync`)
+      response.assertStatus(202)
+      const body = response.body()
+      assert.equal(body.status, 'queued')
+      assert.equal(body.integrationId, integration.id)
+      assert.isString(body.jobId)
+      fake.assertPushed(SyncIntegrationJob, {
+        queue: 'default',
+        payload: { integrationId: integration.id },
+      })
+      fake.assertPushedCount(1)
+      assert.equal(fake.getPushedJobs()[0].job.id, body.jobId)
+      assert.deepEqual(Object.keys(body).sort(), ['integrationId', 'jobId', 'status'])
+      assert.deepEqual(fake.getPushedJobs()[0].job.payload, { integrationId: integration.id })
+      assert.isUndefined(fake.getPushedJobs()[0].job.dedup)
+      assert.lengthOf(await SyncRun.all(), 0)
+      assert.lengthOf(await SourceRecord.all(), 0)
     })
-    const response = await client.post(`/integrations/${integration.id}/sync`)
-    response.assertStatus(202)
-    const body = response.body()
-    assert.equal(body.status, 'queued')
-    assert.equal(body.integrationId, integration.id)
-    assert.isString(body.jobId)
-    fake.assertPushed(SyncIntegrationJob, {
-      queue: 'default',
-      payload: { integrationId: integration.id },
-    })
-    fake.assertPushedCount(1)
-    assert.equal(fake.getPushedJobs()[0].job.id, body.jobId)
-    assert.deepEqual(Object.keys(body).sort(), ['integrationId', 'jobId', 'status'])
-    assert.deepEqual(fake.getPushedJobs()[0].job.payload, { integrationId: integration.id })
-    assert.isUndefined(fake.getPushedJobs()[0].job.dedup)
-    assert.lengthOf(await SyncRun.all(), 0)
-    assert.lengthOf(await SourceRecord.all(), 0)
-  })
+  }
 
   for (const id of ['0', '-1', '1.5', 'abc', '1e2', '2147483648', '9007199254740993', '01']) {
     test(`rejects invalid integration ID ${id}`, async ({ client, assert }) => {
@@ -67,7 +69,12 @@ test.group('M4 synchronization dispatch endpoint', (group) => {
 
   for (const [attributes, status, code, message] of [
     [{ enabled: false }, 409, 'INTEGRATION_DISABLED', 'Integration is disabled'],
-    [{ provider: 'tms' }, 422, 'UNSUPPORTED_PROVIDER', 'Integration provider is not supported'],
+    [
+      { provider: 'unknown-provider' },
+      422,
+      'UNSUPPORTED_PROVIDER',
+      'Integration provider is not supported',
+    ],
   ] as const) {
     test(`rejects ${code} without enqueueing or executing`, async ({ client, assert }) => {
       const integration = await Integration.create({

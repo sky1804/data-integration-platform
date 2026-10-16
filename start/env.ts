@@ -73,4 +73,27 @@ export default await Env.create(new URL('../', import.meta.url), {
     }
     return timeout
   },
+
+  TMS_API_URL: (key, value) => {
+    const parsed = Env.schema.string({ format: 'url', tld: false })(key, value)
+    const url = new URL(parsed)
+    if (
+      !['http:', 'https:'].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error(`${key} must be an HTTP(S) base URL without credentials, query, or fragment`)
+    }
+    return parsed
+  },
+  TMS_API_KEY: Env.schema.secret(),
+  TMS_API_TIMEOUT_MS: (key, value) => {
+    const timeout = Env.schema.number()(key, value)
+    if (!Number.isInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) {
+      throw new Error(`${key} must be a positive integer up to 2147483647`)
+    }
+    return timeout
+  },
 })

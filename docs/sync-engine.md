@@ -1,6 +1,6 @@
 # Synchronization engine — M3
 
-`SyncEngine` connects the concrete Carrier client to M1 raw persistence. Execution
+`SyncEngine` connects a provider-neutral Connector to M1 raw persistence. Execution
 is synchronous through its direct API; it neither dispatches jobs nor exposes an
 HTTP endpoint. M4's [asynchronous entrypoint](async-sync.md) now wraps it with
 `POST /integrations/:id/sync` and a thin Redis-backed job. All execution logic
@@ -12,18 +12,18 @@ import SyncEngine from '#services/sync_engine'
 const run = await new SyncEngine().execute(integration.id)
 ```
 
-The constructor accepts optional `{ carrierClient, pageSize }`. The client needs
-only the existing `CarrierClient.fetchPage` method; tests can substitute that
-method without introducing a connector interface. Page size defaults to 100 and
-must be an integer from 1 to 100, matching the Carrier boundary. No page-size
-environment variable was added.
+M5 changes constructor injection to `{ connectorResolver, pageSize }`. The resolver
+defaults to the two-provider factory and returns a Connector with one fetchPage
+method. Tests can substitute this boundary. Page size still defaults to 100,
+allowed range 1–100. No page-size environment variable was added. See
+[connectors](connectors.md) for raw observation mapping and provider resolution.
 
 ## Preconditions and lifecycle
 
 Before creating a run, `execute(integrationId)` loads the integration and rejects
 missing, disabled, or unsupported providers with `SyncEngineError` codes
 `INTEGRATION_NOT_FOUND`, `INTEGRATION_DISABLED`, and `UNSUPPORTED_PROVIDER`.
-Only exact provider `carrier` is supported. None of those rejections creates a
+Exact providers `carrier` and `tms` are supported. None of those rejections creates a
 run or calls the provider. Database errors while loading/creating the run produce
 a sanitized `PERSISTENCE_ERROR`; an unavailable database cannot guarantee an
 audit row.
@@ -48,18 +48,18 @@ model writes are not governed by a state-machine trigger.
 ## Pagination and persistence
 
 The engine owns the loop, beginning without a cursor and passing the same page
-size on every call. CarrierClient remains responsible for HTTP, authorization,
-timeouts, parsing and validation. The engine does not revalidate or normalize
-returned records.
+size on every call through Connector.fetchPage. Each concrete client owns HTTP,
+authentication, timeouts, parsing and validation. Its connector adapts ingestion
+metadata and pagination. The engine does not revalidate or normalize raw records.
 
-Each returned record maps to a SourceRecord:
+Each returned SourceObservation maps to a SourceRecord:
 
-| SourceRecord field | Carrier source                                   |
-| ------------------ | ------------------------------------------------ |
-| `syncRunId`        | Current run ID                                   |
-| `externalId`       | `shipmentId`                                     |
-| `payload`          | Complete raw object, including extra fields      |
-| `sourceUpdatedAt`  | `DateTime.fromISO(updatedAt, { setZone: true })` |
+| SourceRecord field | Observation source                            |
+| ------------------ | --------------------------------------------- |
+| `syncRunId`        | Current run ID                                |
+| `externalId`       | `observation.externalId`                      |
+| `payload`          | `observation.payload`, including extra fields |
+| `sourceUpdatedAt`  | `observation.sourceUpdatedAt` (Luxon or null) |
 
 JSONB retains structure; provider status, amount, names, timestamp string and
 additional fields in `payload` remain unchanged. The separate provider timestamp
@@ -80,11 +80,11 @@ longer cycles terminate. No checkpoint or resume state is stored.
 
 ## Counters and terminal failures
 
-| Counter            | Meaning                                              |
-| ------------------ | ---------------------------------------------------- |
-| `recordsReceived`  | Validated records actually returned by CarrierClient |
-| `recordsPersisted` | SourceRecords in successfully committed pages        |
-| `recordsFailed`    | Returned records belonging to a rolled-back page     |
+| Counter            | Meaning                                          |
+| ------------------ | ------------------------------------------------ |
+| `recordsReceived`  | Validated observations returned by the connector |
+| `recordsPersisted` | SourceRecords in successfully committed pages    |
+| `recordsFailed`    | Returned records belonging to a rolled-back page |
 
 For finalized runs, `received = persisted + failed`. Rejected provider pages and
 failed requests contribute no received/failed records. A page persistence failure
@@ -103,12 +103,12 @@ It never returns a failed run as a successful result.
 
 | Failure                                    | Stable code                |
 | ------------------------------------------ | -------------------------- |
-| CarrierAuthenticationError                 | `PROVIDER_AUTHENTICATION`  |
-| CarrierRateLimitError                      | `PROVIDER_RATE_LIMIT`      |
-| CarrierUnavailableError                    | `PROVIDER_UNAVAILABLE`     |
-| CarrierTimeoutError                        | `PROVIDER_TIMEOUT`         |
-| CarrierPayloadValidationError              | `PROVIDER_PAYLOAD_INVALID` |
-| CarrierRequestError                        | `PROVIDER_REQUEST_FAILED`  |
+| ConnectorError AUTHENTICATION              | `PROVIDER_AUTHENTICATION`  |
+| ConnectorError RATE_LIMIT                  | `PROVIDER_RATE_LIMIT`      |
+| ConnectorError UNAVAILABLE                 | `PROVIDER_UNAVAILABLE`     |
+| ConnectorError TIMEOUT                     | `PROVIDER_TIMEOUT`         |
+| ConnectorError PAYLOAD_INVALID             | `PROVIDER_PAYLOAD_INVALID` |
+| ConnectorError REQUEST_FAILED              | `PROVIDER_REQUEST_FAILED`  |
 | Page transaction/start-state write failure | `PERSISTENCE_ERROR`        |
 | Repeated cursor                            | `PAGINATION_CYCLE`         |
 | Other processing error                     | `UNEXPECTED_ERROR`         |
@@ -127,18 +127,19 @@ lock, retry, resume, single-run constraint or concurrent-run suppression. The sa
 engine instance keeps all cursor/counter state local to each execution. Concurrent
 calls may intentionally create independent historical runs.
 
-M3 functional tests use `testUtils.db().truncate()` only in their group. This
+M3/M5 engine functional tests use `testUtils.db().truncate()` only in their group. This
 allows real page commits and independent transaction visibility instead of
 savepoints under a global test transaction. Existing M1 groups retain
 `wrapInGlobalTransaction()`. The functional suite still migrates/resets only the
-guarded `_test` database; cleanup truncates test data after each M3 case. Run tests
+guarded `_test` database; cleanup truncates test data after each engine case. Run tests
 sequentially against a dedicated database. Never use development data for tests.
 
 A process crash can leave a RUNNING audit row; hard crashes, ambiguous database
 commit outcomes and failure to finalize during a database outage require future
 recovery policy. No global page bound is imposed on a provider returning an
 unending sequence of distinct cursors. Cycle detection covers repeated cursors.
-M4 adds asynchronous invocation but does not resolve these recovery limitations.
+M4 adds asynchronous invocation; M5 adds a second connector. Neither resolves
+these recovery limitations. No M6 business normalization is implemented.
 
 References: [Lucid transactions](https://lucid.adonisjs.com/docs/transactions),
 [Lucid testing utilities](https://lucid.adonisjs.com/docs/testing).

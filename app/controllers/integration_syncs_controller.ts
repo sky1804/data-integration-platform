@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import Integration from '#models/integration'
 import SyncIntegrationJob from '#jobs/sync_integration_job'
+import { isSupportedProvider } from '../integrations/connector_factory.js'
 
 export default class IntegrationSyncsController {
   async store({ params, response }: HttpContext) {
@@ -26,7 +27,7 @@ export default class IntegrationSyncsController {
     }
     if (!integration) return reject(404, 'INTEGRATION_NOT_FOUND', 'Integration does not exist')
     if (!integration.enabled) return reject(409, 'INTEGRATION_DISABLED', 'Integration is disabled')
-    if (integration.provider !== 'carrier') {
+    if (!isSupportedProvider(integration.provider)) {
       return reject(422, 'UNSUPPORTED_PROVIDER', 'Integration provider is not supported')
     }
 

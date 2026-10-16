@@ -1,4 +1,4 @@
-export interface CarrierShipment {
+export interface CarrierShipment extends Record<string, unknown> {
   shipmentId: string
   status: string
   amount: number

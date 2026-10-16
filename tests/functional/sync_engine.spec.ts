@@ -14,17 +14,11 @@ import {
   SyncFinalizationError,
 } from '#services/sync_engine_errors'
 import CarrierClient from '../../app/integrations/carrier/carrier_client.js'
-import type { CarrierPage, CarrierShipment } from '../../app/integrations/carrier/carrier_types.js'
-import {
-  CarrierAuthenticationError,
-  CarrierRateLimitError,
-  CarrierUnavailableError,
-  CarrierTimeoutError,
-  CarrierPayloadValidationError,
-  CarrierRequestError,
-} from '../../app/integrations/carrier/carrier_errors.js'
+import type { CarrierShipment } from '../../app/integrations/carrier/carrier_types.js'
+import type { ConnectorPage } from '../../app/integrations/connector.js'
+import CarrierConnector from '../../app/integrations/carrier/carrier_connector.js'
+import { ConnectorError } from '../../app/integrations/connector_errors.js'
 import { createCarrierMockServer } from '../../mocks/carrier/server.js'
-
 const raw = {
   shipmentId: 'SHP-100',
   status: 'IN_TRANSIT',
@@ -35,11 +29,16 @@ const raw = {
 }
 const secondRaw = { ...raw, shipmentId: 'SHP-101', status: 'DELIVERED', amount: 890 }
 const thirdRaw = { ...raw, shipmentId: 'SHP-102', status: 'PENDING', amount: 3500.25 }
-
-function page(records: CarrierShipment[] = [], nextCursor: string | null = null): CarrierPage {
-  return { records, nextCursor }
+function page(records: CarrierShipment[] = [], nextCursor: string | null = null): ConnectorPage {
+  return {
+    records: records.map((record) => ({
+      externalId: record.shipmentId,
+      sourceUpdatedAt: DateTime.fromISO(record.updatedAt, { setZone: true }),
+      payload: record,
+    })),
+    nextCursor,
+  }
 }
-
 async function integration(attributes: Partial<Pick<Integration, 'enabled' | 'provider'>> = {}) {
   return Integration.create({
     name: 'Carrier demo',
@@ -48,7 +47,6 @@ async function integration(attributes: Partial<Pick<Integration, 'enabled' | 'pr
     ...attributes,
   })
 }
-
 async function outcome(execute: () => Promise<SyncRun>) {
   try {
     await execute()
@@ -58,11 +56,9 @@ async function outcome(execute: () => Promise<SyncRun>) {
   }
   throw new Error('Expected SyncExecutionError')
 }
-
 test.group('M3 synchronization engine', (group) => {
   // Real independent page commits, not savepoints inside M1's global transaction.
   group.each.setup(() => testUtils.db().truncate())
-
   test('commits multiple pages, raw records and progress before fetching the next page', async ({
     assert,
   }) => {
@@ -70,7 +66,7 @@ test.group('M3 synchronization engine', (group) => {
     let requests = 0
     const engine = new SyncEngine({
       pageSize: 2,
-      carrierClient: {
+      connectorResolver: () => ({
         async fetchPage(options) {
           const stored = await SyncRun.query().where('integrationId', configured.id).firstOrFail()
           assert.equal(stored.status, 'RUNNING')
@@ -97,7 +93,7 @@ test.group('M3 synchronization engine', (group) => {
           })
           return page([thirdRaw])
         },
-      },
+      }),
     })
     const result = await engine.execute(configured.id)
     const stored = await SyncRun.findOrFail(result.id)
@@ -121,7 +117,6 @@ test.group('M3 synchronization engine', (group) => {
     assert.equal(records[0].sourceUpdatedAt!.toMillis(), DateTime.fromISO(raw.updatedAt).toMillis())
     assert.equal(requests, 2)
   })
-
   test('integrates the real CarrierClient and mock HTTP server with PostgreSQL', async ({
     assert,
     cleanup,
@@ -141,21 +136,23 @@ test.group('M3 synchronization engine', (group) => {
       timeoutMs: 1000,
     })
     const configured = await integration()
-    const result = await new SyncEngine({ carrierClient, pageSize: 2 }).execute(configured.id)
+    const result = await new SyncEngine({
+      connectorResolver: () => new CarrierConnector(carrierClient),
+      pageSize: 2,
+    }).execute(configured.id)
     assert.equal(result.status, 'SUCCESS')
     assert.equal(result.recordsPersisted, 3)
     assert.lengthOf(await result.related('sourceRecords').query(), 3)
   })
-
   test('retains historical observations across independent executions', async ({ assert }) => {
     const configured = await integration()
     let current = raw
     const engine = new SyncEngine({
-      carrierClient: {
+      connectorResolver: () => ({
         async fetchPage() {
           return page([current])
         },
-      },
+      }),
     })
     const first = await engine.execute(configured.id)
     current = { ...raw, status: 'DELIVERED', updatedAt: '2026-10-05T12:00:00Z' }
@@ -169,15 +166,14 @@ test.group('M3 synchronization engine', (group) => {
     assert.deepEqual(observations[0].payload, raw)
     assert.deepEqual(observations[1].payload, current)
   })
-
   test('returns SUCCESS for an empty provider result', async ({ assert }) => {
     const configured = await integration()
     const run = await new SyncEngine({
-      carrierClient: {
+      connectorResolver: () => ({
         async fetchPage() {
           return page()
         },
-      },
+      }),
     }).execute(configured.id)
     assert.equal(run.status, 'SUCCESS')
     assert.equal(run.recordsReceived, 0)
@@ -187,15 +183,14 @@ test.group('M3 synchronization engine', (group) => {
     assert.isNotNull(run.finishedAt)
     assert.lengthOf(await SourceRecord.all(), 0)
   })
-
-  for (const [ErrorClass, code] of [
-    [CarrierAuthenticationError, 'PROVIDER_AUTHENTICATION'],
-    [CarrierRateLimitError, 'PROVIDER_RATE_LIMIT'],
-    [CarrierUnavailableError, 'PROVIDER_UNAVAILABLE'],
-    [CarrierTimeoutError, 'PROVIDER_TIMEOUT'],
-    [CarrierPayloadValidationError, 'PROVIDER_PAYLOAD_INVALID'],
-    [CarrierRequestError, 'PROVIDER_REQUEST_FAILED'],
-    [Error, 'UNEXPECTED_ERROR'],
+  for (const [kind, code] of [
+    ['AUTHENTICATION', 'PROVIDER_AUTHENTICATION'],
+    ['RATE_LIMIT', 'PROVIDER_RATE_LIMIT'],
+    ['UNAVAILABLE', 'PROVIDER_UNAVAILABLE'],
+    ['TIMEOUT', 'PROVIDER_TIMEOUT'],
+    ['PAYLOAD_INVALID', 'PROVIDER_PAYLOAD_INVALID'],
+    ['REQUEST_FAILED', 'PROVIDER_REQUEST_FAILED'],
+    [undefined, 'UNEXPECTED_ERROR'],
   ] as const) {
     test(`finalizes ${code} before any returned page, without leaking the cause`, async ({
       assert,
@@ -203,14 +198,15 @@ test.group('M3 synchronization engine', (group) => {
       const configured = await integration()
       let requests = 0
       const engine = new SyncEngine({
-        carrierClient: {
+        connectorResolver: () => ({
           async fetchPage() {
             requests++
-            throw new ErrorClass(
+            const failure = kind === undefined ? new Error('unexpected') : new ConnectorError(kind)
+            failure.message =
               'Bearer secret-token password raw-provider-body https://private.example'
-            )
+            throw failure
           },
-        },
+        }),
       })
       const run = await outcome(() => engine.execute(configured.id))
       assert.equal(run.status, 'FAILED')
@@ -225,19 +221,18 @@ test.group('M3 synchronization engine', (group) => {
       assert.equal(requests, 1)
     })
   }
-
   test('keeps committed pages after a later provider failure with no invented failed records', async ({
     assert,
   }) => {
     const configured = await integration()
     let requests = 0
     const engine = new SyncEngine({
-      carrierClient: {
+      connectorResolver: () => ({
         async fetchPage() {
           if (++requests === 1) return page([raw, secondRaw], 'later')
-          throw new CarrierUnavailableError('raw-sensitive-provider-body', 500)
+          throw new ConnectorError('UNAVAILABLE')
         },
-      },
+      }),
     })
     const run = await outcome(() => engine.execute(configured.id))
     assert.equal(run.status, 'PARTIAL')
@@ -249,18 +244,17 @@ test.group('M3 synchronization engine', (group) => {
     assert.lengthOf(await run.related('sourceRecords').query(), 2)
     assert.equal(requests, 2)
   })
-
   test('fails after an empty page because no usable records were committed', async ({ assert }) => {
     const configured = await integration()
     let requests = 0
     const run = await outcome(() =>
       new SyncEngine({
-        carrierClient: {
+        connectorResolver: () => ({
           async fetchPage() {
             if (++requests === 1) return page([], 'later')
-            throw new CarrierTimeoutError('timeout')
+            throw new ConnectorError('TIMEOUT')
           },
-        },
+        }),
       }).execute(configured.id)
     )
     assert.equal(run.status, 'FAILED')
@@ -268,7 +262,6 @@ test.group('M3 synchronization engine', (group) => {
     assert.equal(run.recordsFailed, 0)
     assert.equal(run.recordsReceived, 0)
   })
-
   for (const hasPreviousPage of [false, true]) {
     test(`rolls back an entire duplicate page ${hasPreviousPage ? 'after' : 'without'} an earlier commit`, async ({
       assert,
@@ -276,14 +269,14 @@ test.group('M3 synchronization engine', (group) => {
       const configured = await integration()
       let requests = 0
       const engine = new SyncEngine({
-        carrierClient: {
+        connectorResolver: () => ({
           async fetchPage() {
             requests++
             if (hasPreviousPage && requests === 1) return page([raw], 'duplicate-page')
             // The first row of this page must disappear when the third row fails.
             return page([secondRaw, thirdRaw, thirdRaw], 'must-not-request')
           },
-        },
+        }),
       })
       const run = await outcome(() => engine.execute(configured.id))
       assert.equal(run.status, hasPreviousPage ? 'PARTIAL' : 'FAILED')
@@ -302,7 +295,6 @@ test.group('M3 synchronization engine', (group) => {
       assert.equal(requests, hasPreviousPage ? 2 : 1)
     })
   }
-
   test('rejects a repeated external ID across pages within one run without overwriting it', async ({
     assert,
   }) => {
@@ -310,13 +302,13 @@ test.group('M3 synchronization engine', (group) => {
     let requests = 0
     const run = await outcome(() =>
       new SyncEngine({
-        carrierClient: {
+        connectorResolver: () => ({
           async fetchPage() {
             return ++requests === 1
               ? page([raw], 'next')
               : page([secondRaw, { ...raw, status: 'CANCELED' }])
           },
-        },
+        }),
       }).execute(configured.id)
     )
     assert.equal(run.status, 'PARTIAL')
@@ -326,20 +318,19 @@ test.group('M3 synchronization engine', (group) => {
     const records = await run.related('sourceRecords').query()
     assert.deepEqual(records[0].payload, raw)
   })
-
   for (const [attributes, code] of [
     [{ enabled: false }, 'INTEGRATION_DISABLED'],
-    [{ provider: 'tms' }, 'UNSUPPORTED_PROVIDER'],
+    [{ provider: 'unknown-provider' }, 'UNSUPPORTED_PROVIDER'],
   ] as const) {
     test(`rejects ${code} before run creation or provider access`, async ({ assert }) => {
       const configured = await integration(attributes)
       const engine = new SyncEngine({
-        carrierClient: {
+        connectorResolver: () => ({
           async fetchPage() {
             assert.fail('No provider request expected')
             return page()
           },
-        },
+        }),
       })
       try {
         await engine.execute(configured.id)
@@ -352,14 +343,13 @@ test.group('M3 synchronization engine', (group) => {
       assert.lengthOf(await SourceRecord.all(), 0)
     })
   }
-
   test('rejects a missing integration before run creation', async ({ assert }) => {
     const engine = new SyncEngine({
-      carrierClient: {
+      connectorResolver: () => ({
         async fetchPage() {
           return page()
         },
-      },
+      }),
     })
     try {
       await engine.execute(0)
@@ -370,7 +360,6 @@ test.group('M3 synchronization engine', (group) => {
     }
     assert.lengthOf(await SyncRun.all(), 0)
   })
-
   for (const persistRecords of [false, true]) {
     test(`detects cursor cycles with ${persistRecords ? 'PARTIAL' : 'FAILED'} outcome`, async ({
       assert,
@@ -378,13 +367,13 @@ test.group('M3 synchronization engine', (group) => {
       const configured = await integration()
       const seen: (string | undefined)[] = []
       const engine = new SyncEngine({
-        carrierClient: {
+        connectorResolver: () => ({
           async fetchPage(options) {
             seen.push(options?.cursor)
             const records = persistRecords ? [{ ...raw, shipmentId: `SHP-${seen.length}` }] : []
             return page(records, options?.cursor === 'cursor-a' ? 'cursor-b' : 'cursor-a')
           },
-        },
+        }),
       })
       const run = await outcome(() => engine.execute(configured.id))
       assert.deepEqual(seen, [undefined, 'cursor-a', 'cursor-b'])
@@ -396,17 +385,16 @@ test.group('M3 synchronization engine', (group) => {
       assert.isNotNull(run.finishedAt)
     })
   }
-
   test('keeps simultaneous executions independent on the same engine instance', async ({
     assert,
   }) => {
     const configured = await integration()
     const engine = new SyncEngine({
-      carrierClient: {
+      connectorResolver: () => ({
         async fetchPage(options) {
           return options?.cursor === undefined ? page([raw], 'next') : page([secondRaw])
         },
-      },
+      }),
     })
     const runs = await Promise.all([engine.execute(configured.id), engine.execute(configured.id)])
     assert.notEqual(runs[0].id, runs[1].id)
@@ -416,28 +404,26 @@ test.group('M3 synchronization engine', (group) => {
       assert.lengthOf(await run.related('sourceRecords').query(), 2)
     }
   })
-
   test('rejects invalid page sizes before execution', ({ assert }) => {
     for (const pageSize of [0, -1, 1.5, 101, Number.NaN]) {
       assert.throws(() => new SyncEngine({ pageSize }), TypeError)
     }
   })
-
   test('reports finalization failure without claiming an audit outcome was saved', async ({
     assert,
   }) => {
     const configured = await integration()
     let runId = 0
     const engine = new SyncEngine({
-      carrierClient: {
+      connectorResolver: () => ({
         async fetchPage() {
           const run = await SyncRun.query().firstOrFail()
           runId = run.id
           // Simulate losing the audit row before finalization; no source rows exist.
           await run.delete()
-          throw new CarrierTimeoutError('secret')
+          throw new ConnectorError('TIMEOUT')
         },
-      },
+      }),
     })
     try {
       await engine.execute(configured.id)

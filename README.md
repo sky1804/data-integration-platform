@@ -7,13 +7,15 @@ Bearer authentication, timeout, validation, and classified provider errors.
 M3 adds synchronous `SyncEngine.execute(integrationId)`, connecting the client to
 raw historical persistence with page transactions and auditable failure outcomes.
 M4 adds `POST /integrations/:id/sync` → Redis → separate worker → SyncEngine.
-The client itself does not persist records. There are no schedules,
+M5 adds a distinct TMS API and a minimal Connector boundary shared by both providers.
+Clients and connectors do not persist records or normalize business fields. There are no schedules,
 authentication for our API, or frontend. See [the synchronization lifecycle](docs/sync-lifecycle.md)
 and [the Carrier provider](docs/carrier-provider.md) for decisions and usage.
 See [the synchronization engine](docs/sync-engine.md) for direct execution,
 counter semantics, and the current concurrency limitations.
 See [asynchronous synchronization](docs/async-sync.md) for the endpoint, 202 semantics,
 zero-retry job policy, and Queue versus SyncRun state.
+See [connectors](docs/connectors.md) and [TMS contract](docs/tms-provider.md) for M5.
 
 ## Quick start
 
@@ -58,7 +60,7 @@ and Redis connections; Compose overrides these hosts with internal service names
 
 ```sh
 npm ci
-docker compose up -d postgres redis carrier-mock
+docker compose up -d postgres redis carrier-mock tms-mock
 node ace migration:run
 npm run dev
 ```
@@ -175,10 +177,17 @@ Carrier's mock is published at <http://127.0.0.1:4001/health>; the application u
 `http://carrier-mock:4001` inside Compose. Existing local `.env` files need the
 three `CARRIER_API_*` values shown in `.env.example`. The mock uses the configured
 demo token. It has a health check but does not gate application startup. Run
-`node ace test unit` for Carrier tests without PostgreSQL or Redis. See
+`node ace test unit` for provider/connector tests without PostgreSQL or Redis. See
 [M2 validation](docs/m2-validation.md) for executed checks and remaining tradeoffs.
 See [M3 validation](docs/m3-validation.md) for synchronization and regression results.
 See [M4 validation](docs/m4-validation.md) for asynchronous dispatch and worker checks.
 With the production image built and Compose infrastructure running,
 `npm run test:async` exercises real Redis and separate workers using a disposable
-Redis container, guarded test database, and random localhost API port.
+Redis container, guarded test database, and random localhost API port. It now
+executes both providers and checks that their raw payloads remain different.
+
+TMS mock health is at <http://127.0.0.1:4002/health>. Add the three `TMS_API_*`
+values from `.env.example` to existing local environments. Compose uses
+`http://tms-mock:4002`; the mock receives only its own API key and shares a
+provider network with API/worker, separate from PostgreSQL/Redis.
+See [M5 validation](docs/m5-validation.md) for complete files, decisions and checks.

@@ -3,15 +3,13 @@ import db from '@adonisjs/lucid/services/db'
 import Integration from '#models/integration'
 import SyncRun from '#models/sync_run'
 import SourceRecord from '#models/source_record'
-import CarrierClient from '../integrations/carrier/carrier_client.js'
+import type { Connector } from '../integrations/connector.js'
+import { ConnectorError, type ConnectorFailureKind } from '../integrations/connector_errors.js'
 import {
-  CarrierAuthenticationError,
-  CarrierRateLimitError,
-  CarrierUnavailableError,
-  CarrierTimeoutError,
-  CarrierPayloadValidationError,
-  CarrierRequestError,
-} from '../integrations/carrier/carrier_errors.js'
+  createConnector,
+  isSupportedProvider,
+  type SupportedProvider,
+} from '../integrations/connector_factory.js'
 import {
   SyncEngineError,
   SyncExecutionError,
@@ -27,44 +25,46 @@ function describeFailure(error: unknown): { code: SyncFailureCode; message: stri
     }
   }
   if (error instanceof SyncEngineError && error.code === 'PAGINATION_CYCLE') {
-    return { code: 'PAGINATION_CYCLE', message: 'Carrier returned a previously requested cursor' }
+    return { code: 'PAGINATION_CYCLE', message: 'Provider returned a previously requested cursor' }
   }
-  if (error instanceof CarrierAuthenticationError) {
-    return { code: 'PROVIDER_AUTHENTICATION', message: 'Carrier authentication failed' }
-  }
-  if (error instanceof CarrierRateLimitError) {
-    return { code: 'PROVIDER_RATE_LIMIT', message: 'Carrier rate limit exceeded' }
-  }
-  if (error instanceof CarrierUnavailableError) {
-    return { code: 'PROVIDER_UNAVAILABLE', message: 'Carrier is unavailable' }
-  }
-  if (error instanceof CarrierTimeoutError) {
-    return { code: 'PROVIDER_TIMEOUT', message: 'Carrier request timed out' }
-  }
-  if (error instanceof CarrierPayloadValidationError) {
-    return { code: 'PROVIDER_PAYLOAD_INVALID', message: 'Carrier returned an invalid payload' }
-  }
-  if (error instanceof CarrierRequestError) {
-    return { code: 'PROVIDER_REQUEST_FAILED', message: 'Carrier returned an unexpected response' }
+  if (error instanceof ConnectorError) {
+    const failures: Record<ConnectorFailureKind, { code: SyncFailureCode; message: string }> = {
+      AUTHENTICATION: {
+        code: 'PROVIDER_AUTHENTICATION',
+        message: 'Provider authentication failed',
+      },
+      RATE_LIMIT: { code: 'PROVIDER_RATE_LIMIT', message: 'Provider rate limit exceeded' },
+      UNAVAILABLE: { code: 'PROVIDER_UNAVAILABLE', message: 'Provider is unavailable' },
+      TIMEOUT: { code: 'PROVIDER_TIMEOUT', message: 'Provider request timed out' },
+      PAYLOAD_INVALID: {
+        code: 'PROVIDER_PAYLOAD_INVALID',
+        message: 'Provider returned an invalid payload',
+      },
+      REQUEST_FAILED: {
+        code: 'PROVIDER_REQUEST_FAILED',
+        message: 'Provider returned an unexpected response',
+      },
+    }
+    return failures[error.kind]
   }
   return { code: 'UNEXPECTED_ERROR', message: 'An unexpected synchronization error occurred' }
 }
 
 export default class SyncEngine {
-  private readonly carrierClient: Pick<CarrierClient, 'fetchPage'>
+  private readonly connectorResolver: (provider: SupportedProvider) => Connector
   private readonly pageSize: number
 
   constructor({
-    carrierClient = new CarrierClient(),
+    connectorResolver = createConnector,
     pageSize = 100,
   }: {
-    carrierClient?: Pick<CarrierClient, 'fetchPage'>
+    connectorResolver?: (provider: SupportedProvider) => Connector
     pageSize?: number
   } = {}) {
     if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
       throw new TypeError('Synchronization page size must be an integer between 1 and 100')
     }
-    this.carrierClient = carrierClient
+    this.connectorResolver = connectorResolver
     this.pageSize = pageSize
   }
 
@@ -79,7 +79,7 @@ export default class SyncEngine {
       throw new SyncEngineError('INTEGRATION_NOT_FOUND', 'Integration does not exist')
     if (!integration.enabled)
       throw new SyncEngineError('INTEGRATION_DISABLED', 'Integration is disabled')
-    if (integration.provider !== 'carrier') {
+    if (!isSupportedProvider(integration.provider)) {
       throw new SyncEngineError('UNSUPPORTED_PROVIDER', 'Integration provider is not supported')
     }
 
@@ -107,17 +107,18 @@ export default class SyncEngine {
       } catch {
         throw new SyncEngineError('PERSISTENCE_ERROR', 'Unable to start the synchronization run')
       }
+      const connector = this.connectorResolver(integration.provider)
       let cursor: string | undefined
       const requestedCursors = new Set<string>()
       while (true) {
         if (cursor !== undefined) {
           if (requestedCursors.has(cursor)) {
-            throw new SyncEngineError('PAGINATION_CYCLE', 'Carrier cursor cycle detected')
+            throw new SyncEngineError('PAGINATION_CYCLE', 'Provider cursor cycle detected')
           }
           requestedCursors.add(cursor)
         }
-        // HTTP work stays outside database transactions and inside CarrierClient.
-        const page = await this.carrierClient.fetchPage({ cursor, limit: this.pageSize })
+        // HTTP work stays outside database transactions and inside the connector/client boundary.
+        const page = await connector.fetchPage({ cursor, limit: this.pageSize })
         run.recordsReceived += page.records.length
         try {
           await db.transaction(async (trx) => {
@@ -125,9 +126,9 @@ export default class SyncEngine {
               await SourceRecord.create(
                 {
                   syncRunId: run.id,
-                  externalId: record.shipmentId,
-                  payload: { ...record },
-                  sourceUpdatedAt: DateTime.fromISO(record.updatedAt, { setZone: true }),
+                  externalId: record.externalId,
+                  payload: record.payload,
+                  sourceUpdatedAt: record.sourceUpdatedAt,
                 },
                 { client: trx }
               )
@@ -143,7 +144,7 @@ export default class SyncEngine {
           })
         } catch {
           run.recordsFailed += page.records.length
-          throw new SyncEngineError('PERSISTENCE_ERROR', 'Unable to persist the Carrier page')
+          throw new SyncEngineError('PERSISTENCE_ERROR', 'Unable to persist the provider page')
         }
         run.recordsPersisted += page.records.length
         if (page.nextCursor === null) break

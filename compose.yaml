@@ -14,12 +14,16 @@ x-application: &application
     REDIS_PORT: 6379
     QUEUE_DRIVER: redis
     CARRIER_API_URL: http://carrier-mock:4001
+    TMS_API_URL: http://tms-mock:4002
   depends_on:
     postgres:
       condition: service_healthy
     redis:
       condition: service_healthy
   stop_grace_period: 30s
+  networks:
+    - default
+    - tms_provider
 
 services:
   api:
@@ -52,6 +56,30 @@ services:
           'node',
           '-e',
           "fetch('http://127.0.0.1:4001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  tms-mock:
+    build:
+      context: ./mocks/tms
+    init: true
+    networks:
+      - tms_provider
+    environment:
+      TMS_API_KEY: ${TMS_API_KEY:?TMS_API_KEY is required}
+      TMS_MOCK_SLOW_MS: 5000
+    ports:
+      - '127.0.0.1:4002:4002'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4002/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
       interval: 5s
       timeout: 3s
@@ -92,3 +120,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  default:
+  tms_provider:

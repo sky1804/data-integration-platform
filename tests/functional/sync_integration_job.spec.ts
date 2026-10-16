@@ -12,25 +12,39 @@ import SyncRun from '#models/sync_run'
 import SourceRecord from '#models/source_record'
 import SyncIntegrationJob from '#jobs/sync_integration_job'
 import carrierConfig from '#config/carrier'
+import tmsConfig from '#config/tms'
+import { createTmsMockServer } from '../../mocks/tms/server.js'
 import { createCarrierMockServer } from '../../mocks/carrier/server.js'
 
 test.group('M4 job execution through the supported worker', (group) => {
   group.each.setup(() => testUtils.db().truncate())
 
-  for (const scenario of ['normal', 'unauthorized', 'disabled-after-dispatch'] as const) {
-    test(`executes ${scenario} and preserves the engine outcome`, async ({ assert, cleanup }) => {
-      const server = createCarrierMockServer({
-        token: carrierConfig.token.release(),
-        scenario: scenario === 'unauthorized' ? scenario : 'normal',
-      })
+  for (const [provider, scenario] of [
+    ['carrier', 'normal'],
+    ['carrier', 'unauthorized'],
+    ['carrier', 'disabled-after-dispatch'],
+    ['tms', 'normal'],
+  ] as const) {
+    test(`executes ${provider} ${scenario} and preserves the engine outcome`, async ({
+      assert,
+      cleanup,
+    }) => {
+      const settings = provider === 'carrier' ? carrierConfig : tmsConfig
+      const server =
+        provider === 'tms'
+          ? createTmsMockServer({ apiKey: tmsConfig.apiKey.release() })
+          : createCarrierMockServer({
+              token: carrierConfig.token.release(),
+              scenario: scenario === 'unauthorized' ? scenario : 'normal',
+            })
       server.listen(0, '127.0.0.1')
       await once(server, 'listening')
-      const originalUrl = carrierConfig.url
-      carrierConfig.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+      const originalUrl = settings.url
+      settings.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
       let requests = 0
       server.on('request', () => requests++)
       cleanup(async () => {
-        carrierConfig.url = originalUrl
+        settings.url = originalUrl
         const closed = once(server, 'close')
         server.close()
         server.closeAllConnections()
@@ -66,9 +80,9 @@ test.group('M4 job execution through the supported worker', (group) => {
       assert.strictEqual(Locator.getOrThrow('SyncIntegrationJob'), SyncIntegrationJob)
       assert.equal(SyncIntegrationJob.options.maxRetries, 0)
       const integration = await Integration.create({
-        name: 'Carrier',
-        slug: 'carrier',
-        provider: 'carrier',
+        name: provider,
+        slug: provider,
+        provider,
       })
       const { jobId } = await SyncIntegrationJob.dispatch({ integrationId: integration.id }).run()
       assert.lengthOf(await SyncRun.all(), 0)
@@ -101,7 +115,14 @@ test.group('M4 job execution through the supported worker', (group) => {
         assert.equal(runs[0].errorCode, scenario === 'normal' ? null : 'PROVIDER_AUTHENTICATION')
         assert.equal(requests, 1)
       }
-      assert.lengthOf(await SourceRecord.all(), scenario === 'normal' ? 3 : 0)
+      const observations = await SourceRecord.all()
+      assert.lengthOf(observations, scenario === 'normal' ? 3 : 0)
+      if (provider === 'tms') {
+        const record = observations.find((observation) => observation.externalId === 'SHP-100')!
+        assert.equal(record.payload.status, 'FINALIZADO')
+        assert.equal(record.payload.totalValue, 1250.5)
+        assert.notProperty(record.payload, 'amount')
+      }
     })
   }
 })

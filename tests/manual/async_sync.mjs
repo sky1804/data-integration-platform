@@ -1,5 +1,5 @@
 // Optional Docker end-to-end validation. Requires the built production image
-// and healthy Compose postgres/redis/carrier-mock services. No development writes.
+// and healthy Compose postgres/redis/carrier-mock/tms-mock services. No development writes.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { setTimeout } from 'node:timers/promises'
@@ -90,7 +90,7 @@ try {
   const { default: SourceRecord } = await import('#models/source_record')
   const job = await queue.use().getJob(process.env.M4_JOB_ID, 'default')
   const runs = await SyncRun.query().orderBy('id')
-  console.log(JSON.stringify({ job, runs: runs.map(run => ({ status: run.status, code: run.errorCode, persisted: run.recordsPersisted })), records: (await SourceRecord.all()).length }))
+  console.log(JSON.stringify({ job, runs: runs.map(run => ({ status: run.status, code: run.errorCode, persisted: run.recordsPersisted })), records: (await SourceRecord.all()).length, observations: (await SourceRecord.all()).map(record => ({ externalId: record.externalId, runId: record.syncRunId, payload: record.payload })) }))
 } finally { await app.terminate() }
 `,
     }
@@ -149,6 +149,13 @@ try {
     ).split(/\r?\n/)[0]
   )
   assert.ok(integrationId > 0)
+  const tmsIntegrationId = Number(
+    sql(
+      database,
+      "INSERT INTO integrations (name, slug, provider, enabled, created_at, updated_at) VALUES ('TMS validation', 'tms-validation', 'tms', true, now(), now()) RETURNING id"
+    ).split(/\r?\n/)[0]
+  )
+  assert.ok(tmsIntegrationId > 0)
 
   // Let Docker allocate a free localhost port; the app still listens on 3333.
   const api = start(
@@ -181,8 +188,8 @@ try {
     (status) => status === 200
   )
 
-  async function dispatch() {
-    const response = await fetch(`${base}/integrations/${integrationId}/sync`, {
+  async function dispatch(id = integrationId) {
+    const response = await fetch(`${base}/integrations/${id}/sync`, {
       method: 'POST',
       headers: { Connection: 'close' },
       // Redis's existing bounded reconnect policy can take longer than a short
@@ -224,6 +231,38 @@ try {
   assert.equal(success.records, 3)
   assert.equal(success.job.data.attempts, 0)
   console.log('Redis → separate worker → SyncEngine → Carrier → SUCCESS and 3 records: passed')
+  const acceptedTms = await dispatch(tmsIntegrationId)
+  assert.equal(acceptedTms.status, 202)
+  const both = await waitFor(
+    'completed TMS queue job',
+    () => inspect(api, acceptedTms.body.jobId),
+    (value) => value.job?.status === 'completed'
+  )
+  assert.deepEqual(both.runs, [
+    { status: 'SUCCESS', code: null, persisted: 3 },
+    { status: 'SUCCESS', code: null, persisted: 3 },
+  ])
+  assert.equal(both.records, 6)
+  assert.deepEqual(both.job.data.payload, { integrationId: tmsIntegrationId })
+  assert.equal(both.job.data.attempts, 0)
+  const carrierObservation = both.observations.find(
+    (record) => record.externalId === 'SHP-100' && 'shipmentId' in record.payload
+  )
+  const tmsObservation = both.observations.find(
+    (record) => record.externalId === 'SHP-100' && 'shipmentCode' in record.payload
+  )
+  assert.ok(carrierObservation)
+  assert.ok(tmsObservation)
+  assert.notEqual(carrierObservation.runId, tmsObservation.runId)
+  assert.equal(carrierObservation.payload.status, 'IN_TRANSIT')
+  assert.equal(carrierObservation.payload.amount, 1250.5)
+  assert.equal(tmsObservation.payload.status, 'FINALIZADO')
+  assert.equal(tmsObservation.payload.totalValue, 1250.5)
+  assert.equal(tmsObservation.payload.deliveryDate, '2026-10-04')
+  assert.ok(!('amount' in tmsObservation.payload))
+  assert.ok(!('shipmentId' in tmsObservation.payload))
+  assert.notDeepEqual(carrierObservation.payload, tmsObservation.payload)
+  console.log('Same HTTP/job/worker executes TMS; both raw schemas remain different: passed')
   docker('stop', worker)
 
   const acceptedFailure = await dispatch()
@@ -250,13 +289,13 @@ try {
     () => inspect(api, acceptedFailure.body.jobId),
     (value) => value.job?.status === 'failed'
   )
-  assert.equal(failure.runs.length, 2)
-  assert.deepEqual(failure.runs[1], {
+  assert.equal(failure.runs.length, 3)
+  assert.deepEqual(failure.runs[2], {
     status: 'FAILED',
     code: 'PROVIDER_AUTHENTICATION',
     persisted: 0,
   })
-  assert.equal(failure.records, 3)
+  assert.equal(failure.records, 6)
   assert.equal(failure.job.data.attempts, 0)
   assert.ok(failure.job.error)
   console.log('HTTP stays 202; queue job failed; FAILED audit retained; zero retries: passed')
@@ -268,7 +307,7 @@ try {
   assert.deepEqual(rejected.body, {
     error: { code: 'QUEUE_UNAVAILABLE', message: 'Synchronization could not be queued' },
   })
-  assert.equal(sql(database, 'SELECT count(*) FROM sync_runs'), '2')
+  assert.equal(sql(database, 'SELECT count(*) FROM sync_runs'), '3')
   assert.equal(devCounts(), before)
   console.log('Redis unavailable → HTTP 503; no new SyncRun; development counts unchanged: passed')
   passed = true
