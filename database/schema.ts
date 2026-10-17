@@ -26,6 +26,23 @@ export class IntegrationSchema extends BaseModel {
   declare updatedAt: DateTime
 }
 
+export class NormalizedShipmentSchema extends BaseModel {
+  static $columns = ['amount', 'createdAt', 'id', 'shipmentKey', 'sourceRecordId', 'status'] as const
+  $columns = NormalizedShipmentSchema.$columns
+  @column()
+  declare amount: string
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare shipmentKey: string
+  @column()
+  declare sourceRecordId: number
+  @column()
+  declare status: string
+}
+
 export class SourceRecordSchema extends BaseModel {
   static $columns = ['createdAt', 'externalId', 'id', 'payload', 'sourceUpdatedAt', 'syncRunId'] as const
   $columns = SourceRecordSchema.$columns

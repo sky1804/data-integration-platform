@@ -88,9 +88,10 @@ try {
   const { default: queue } = await import('@adonisjs/queue/services/main')
   const { default: SyncRun } = await import('#models/sync_run')
   const { default: SourceRecord } = await import('#models/source_record')
+  const { default: NormalizedShipment } = await import('#models/normalized_shipment')
   const job = await queue.use().getJob(process.env.M4_JOB_ID, 'default')
   const runs = await SyncRun.query().orderBy('id')
-  console.log(JSON.stringify({ job, runs: runs.map(run => ({ status: run.status, code: run.errorCode, persisted: run.recordsPersisted })), records: (await SourceRecord.all()).length, observations: (await SourceRecord.all()).map(record => ({ externalId: record.externalId, runId: record.syncRunId, payload: record.payload })) }))
+  console.log(JSON.stringify({ job, runs: runs.map(run => ({ status: run.status, code: run.errorCode, persisted: run.recordsPersisted })), records: (await SourceRecord.all()).length, observations: (await SourceRecord.all()).map(record => ({ id: record.id, externalId: record.externalId, runId: record.syncRunId, payload: record.payload })), normalized: (await NormalizedShipment.all()).map(record => ({ sourceRecordId: record.sourceRecordId, shipmentKey: record.shipmentKey, status: record.status, amount: record.amount })) }))
 } finally { await app.terminate() }
 `,
     }
@@ -207,6 +208,7 @@ try {
   assert.deepEqual(pending.job.data.payload, { integrationId })
   assert.equal(pending.runs.length, 0)
   assert.equal(pending.records, 0)
+  assert.equal(pending.normalized.length, 0)
   console.log('HTTP 202 → real Redis pending job; no SyncRun before worker: passed')
 
   const worker = start(
@@ -229,6 +231,7 @@ try {
   )
   assert.deepEqual(success.runs, [{ status: 'SUCCESS', code: null, persisted: 3 }])
   assert.equal(success.records, 3)
+  assert.equal(success.normalized.length, 3)
   assert.equal(success.job.data.attempts, 0)
   console.log('Redis → separate worker → SyncEngine → Carrier → SUCCESS and 3 records: passed')
   const acceptedTms = await dispatch(tmsIntegrationId)
@@ -243,6 +246,7 @@ try {
     { status: 'SUCCESS', code: null, persisted: 3 },
   ])
   assert.equal(both.records, 6)
+  assert.equal(both.normalized.length, 6)
   assert.deepEqual(both.job.data.payload, { integrationId: tmsIntegrationId })
   assert.equal(both.job.data.attempts, 0)
   const carrierObservation = both.observations.find(
@@ -262,7 +266,24 @@ try {
   assert.ok(!('amount' in tmsObservation.payload))
   assert.ok(!('shipmentId' in tmsObservation.payload))
   assert.notDeepEqual(carrierObservation.payload, tmsObservation.payload)
+  const carrierProjection = both.normalized.find(
+    (row) => row.sourceRecordId === carrierObservation.id
+  )
+  const tmsProjection = both.normalized.find((row) => row.sourceRecordId === tmsObservation.id)
+  assert.deepEqual(carrierProjection, {
+    sourceRecordId: carrierObservation.id,
+    shipmentKey: 'SHP-100',
+    status: 'IN_TRANSIT',
+    amount: '1250.50',
+  })
+  assert.deepEqual(tmsProjection, {
+    sourceRecordId: tmsObservation.id,
+    shipmentKey: 'SHP-100',
+    status: 'DELIVERED',
+    amount: '1250.50',
+  })
   console.log('Same HTTP/job/worker executes TMS; both raw schemas remain different: passed')
+  console.log('Carrier and TMS each persist 3 raw + 3 canonical historical observations: passed')
   docker('stop', worker)
 
   const acceptedFailure = await dispatch()
@@ -296,6 +317,7 @@ try {
     persisted: 0,
   })
   assert.equal(failure.records, 6)
+  assert.equal(failure.normalized.length, 6)
   assert.equal(failure.job.data.attempts, 0)
   assert.ok(failure.job.error)
   console.log('HTTP stays 202; queue job failed; FAILED audit retained; zero retries: passed')

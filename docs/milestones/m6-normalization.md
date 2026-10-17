@@ -1,8 +1,9 @@
 # M6 — Canonical Shipment Normalization
 
-Status: planned; implementation has not started. This document defines the scope
-for a future explicit M6 implementation request. Reading, reviewing, or committing
-it does not authorize starting M6.
+Status: implemented and validated. See [M6 validation](../m6-validation.md) for
+observed evidence and [normalization](../normalization.md) for the final design.
+The requirements below remain the milestone's implementation scope. M7 has not
+been started and requires a separate explicit request.
 
 Implement M6 for the `data-integration-platform`.
 

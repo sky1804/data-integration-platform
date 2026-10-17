@@ -10,6 +10,7 @@ import { FakeAdapter } from '@boringnode/queue/drivers/fake_adapter'
 import Integration from '#models/integration'
 import SyncRun from '#models/sync_run'
 import SourceRecord from '#models/source_record'
+import NormalizedShipment from '#models/normalized_shipment'
 import SyncIntegrationJob from '#jobs/sync_integration_job'
 import carrierConfig from '#config/carrier'
 import tmsConfig from '#config/tms'
@@ -86,6 +87,7 @@ test.group('M4 job execution through the supported worker', (group) => {
       })
       const { jobId } = await SyncIntegrationJob.dispatch({ integrationId: integration.id }).run()
       assert.lengthOf(await SyncRun.all(), 0)
+      assert.lengthOf(await NormalizedShipment.all(), 0)
       if (scenario === 'disabled-after-dispatch') {
         integration.enabled = false
         await integration.save()
@@ -117,6 +119,15 @@ test.group('M4 job execution through the supported worker', (group) => {
       }
       const observations = await SourceRecord.all()
       assert.lengthOf(observations, scenario === 'normal' ? 3 : 0)
+      const projections = await NormalizedShipment.query().orderBy('id')
+      assert.lengthOf(projections, scenario === 'normal' ? 3 : 0)
+      if (scenario === 'normal') {
+        const source = observations.find((record) => record.externalId === 'SHP-100')!
+        const canonical = projections.find((record) => record.sourceRecordId === source.id)!
+        assert.equal(canonical.shipmentKey, 'SHP-100')
+        assert.equal(canonical.status, provider === 'carrier' ? 'IN_TRANSIT' : 'DELIVERED')
+        assert.strictEqual(canonical.amount, '1250.50')
+      }
       if (provider === 'tms') {
         const record = observations.find((observation) => observation.externalId === 'SHP-100')!
         assert.equal(record.payload.status, 'FINALIZADO')

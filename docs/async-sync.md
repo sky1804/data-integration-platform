@@ -69,6 +69,10 @@ provider field is trusted from the queue payload. Both use this same endpoint an
 job. It catches no engine exception. SUCCESS completes the queue job; any engine
 exception fails it. Business audit finalization remains the engine's task.
 
+M6 keeps this same job and payload. Inside SyncEngine, each successful page now
+commits raw SourceRecords and linked canonical projections together. See
+[normalization](normalization.md); no separate normalization job is introduced.
+
 Installed `@adonisjs/queue` stays pinned to **0.6.2**, with locked underlying
 `@boringnode/queue` **0.6.0**. Implementation follows the installed declarations,
 job stub and worker source; this experimental API may differ from newer docs.

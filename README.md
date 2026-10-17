@@ -8,6 +8,8 @@ M3 adds synchronous `SyncEngine.execute(integrationId)`, connecting the client t
 raw historical persistence with page transactions and auditable failure outcomes.
 M4 adds `POST /integrations/:id/sync` → Redis → separate worker → SyncEngine.
 M5 adds a distinct TMS API and a minimal Connector boundary shared by both providers.
+M6 adds canonical historical shipment projections alongside unchanged raw records;
+see [normalization](docs/normalization.md) for mappings, exact amounts, and atomicity.
 Clients and connectors do not persist records or normalize business fields. There are no schedules,
 authentication for our API, or frontend. See [the synchronization lifecycle](docs/sync-lifecycle.md)
 and [the Carrier provider](docs/carrier-provider.md) for decisions and usage.
@@ -32,7 +34,7 @@ The API is at <http://localhost:3333/> and returns JSON. The worker runs
 `node ace.js queue:work` in a separate container using the same production image.
 The worker discovers `SyncIntegrationJob` and waits for manually dispatched work.
 
-After the services start, apply the M1 tables from a second terminal:
+After the services start, apply the database migrations from a second terminal:
 
 ```sh
 docker compose exec -T api node ace.js migration:run --force --no-schema-generate
@@ -191,3 +193,4 @@ values from `.env.example` to existing local environments. Compose uses
 `http://tms-mock:4002`; the mock receives only its own API key and shares a
 provider network with API/worker, separate from PostgreSQL/Redis.
 See [M5 validation](docs/m5-validation.md) for complete files, decisions and checks.
+See [M6 validation](docs/m6-validation.md) for normalization and regression evidence.

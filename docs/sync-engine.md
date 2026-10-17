@@ -50,7 +50,8 @@ model writes are not governed by a state-machine trigger.
 The engine owns the loop, beginning without a cursor and passing the same page
 size on every call through Connector.fetchPage. Each concrete client owns HTTP,
 authentication, timeouts, parsing and validation. Its connector adapts ingestion
-metadata and pagination. The engine does not revalidate or normalize raw records.
+metadata and pagination. The engine does not revalidate or mutate raw records;
+M6 resolves a separate provider normalizer for canonical business projections.
 
 Each returned SourceObservation maps to a SourceRecord:
 
@@ -65,8 +66,9 @@ JSONB retains structure; provider status, amount, names, timestamp string and
 additional fields in `payload` remain unchanged. The separate provider timestamp
 column represents the same instant using Lucid/Luxon conventions.
 
-After fetching a page, a Lucid managed transaction inserts its SourceRecords and
-updates the run's progress counters through that transaction client. Both commit
+After fetching a page, a Lucid managed transaction normalizes each observation,
+inserts its SourceRecord and linked NormalizedShipment, and updates the run's
+progress counters through that transaction client. All commit
 together. No HTTP request runs inside a database transaction. One failed insert,
 including the existing unique constraint for `(sync_run_id, external_id)`, rolls
 back the entire page and its progress update. Previous pages remain committed.
@@ -83,7 +85,7 @@ longer cycles terminate. No checkpoint or resume state is stored.
 | Counter            | Meaning                                          |
 | ------------------ | ------------------------------------------------ |
 | `recordsReceived`  | Validated observations returned by the connector |
-| `recordsPersisted` | SourceRecords in successfully committed pages    |
+| `recordsPersisted` | Raw/projection pairs in committed pages          |
 | `recordsFailed`    | Returned records belonging to a rolled-back page |
 
 For finalized runs, `received = persisted + failed`. Rejected provider pages and
@@ -110,6 +112,7 @@ It never returns a failed run as a successful result.
 | ConnectorError PAYLOAD_INVALID             | `PROVIDER_PAYLOAD_INVALID` |
 | ConnectorError REQUEST_FAILED              | `PROVIDER_REQUEST_FAILED`  |
 | Page transaction/start-state write failure | `PERSISTENCE_ERROR`        |
+| Amount outside canonical scale/range       | `NORMALIZATION_ERROR`      |
 | Repeated cursor                            | `PAGINATION_CYCLE`         |
 | Other processing error                     | `UNEXPECTED_ERROR`         |
 
@@ -139,7 +142,8 @@ commit outcomes and failure to finalize during a database outage require future
 recovery policy. No global page bound is imposed on a provider returning an
 unending sequence of distinct cursors. Cycle detection covers repeated cursors.
 M4 adds asynchronous invocation; M5 adds a second connector. Neither resolves
-these recovery limitations. No M6 business normalization is implemented.
+these recovery limitations. M6 adds [canonical historical normalization](normalization.md)
+inside each page transaction, preserving those limitations and raw payloads.
 
 References: [Lucid transactions](https://lucid.adonisjs.com/docs/transactions),
 [Lucid testing utilities](https://lucid.adonisjs.com/docs/testing).

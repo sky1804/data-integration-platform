@@ -6,6 +6,7 @@ import { DateTime } from 'luxon'
 import Integration from '#models/integration'
 import SyncRun from '#models/sync_run'
 import SourceRecord from '#models/source_record'
+import NormalizedShipment from '#models/normalized_shipment'
 import SyncEngine from '#services/sync_engine'
 import { SyncExecutionError } from '#services/sync_engine_errors'
 import TmsClient from '../../app/integrations/tms/tms_client.js'
@@ -93,6 +94,15 @@ test.group('M5 TMS synchronization through Connector', (group) => {
       DateTime.fromISO(first.lastModifiedAt).toMillis()
     )
     assert.notProperty(records[0].payload, 'amount')
+    const projections = await NormalizedShipment.query().orderBy('id')
+    assert.deepEqual(
+      projections.map((row) => [row.shipmentKey, row.status, row.amount, row.sourceRecordId]),
+      [
+        ['SHP-100', 'DELIVERED', '1250.50', records[0].id],
+        ['SHP-101', 'IN_TRANSIT', '890.00', records[1].id],
+        ['SHP-102', 'PENDING', '3500.25', records[2].id],
+      ]
+    )
     assert.equal(requests, 2)
   })
 

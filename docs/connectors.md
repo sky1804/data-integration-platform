@@ -55,9 +55,9 @@ preserves its structure. Status, amount/totalValue, delivery date and field name
 remain provider-specific. Dates are parsed only for the separate ingestion
 timestamp column; the date strings inside the payload are untouched.
 
-Carrier's `amount` and TMS's `totalValue` do not become a common amount field.
-Carrier's statuses and TMS's Portuguese statuses are not converted into shared
-statuses. There is no canonical Shipment, normalized table or reconciliation.
+Connectors do not convert business amounts or statuses. M6's separate
+[normalizers](normalization.md) create canonical historical projections alongside
+the unchanged raw SourceRecords. Reconciliation remains deferred.
 
 ## Pagination and resolution
 

@@ -3,6 +3,9 @@ import db from '@adonisjs/lucid/services/db'
 import Integration from '#models/integration'
 import SyncRun from '#models/sync_run'
 import SourceRecord from '#models/source_record'
+import NormalizedShipment from '#models/normalized_shipment'
+import { createShipmentNormalizer } from '../normalization/shipment_normalizer_factory.js'
+import { NormalizationError } from '../normalization/shipment_normalizer.js'
 import type { Connector } from '../integrations/connector.js'
 import { ConnectorError, type ConnectorFailureKind } from '../integrations/connector_errors.js'
 import {
@@ -18,6 +21,12 @@ import {
 } from '#services/sync_engine_errors'
 
 function describeFailure(error: unknown): { code: SyncFailureCode; message: string } {
+  if (error instanceof NormalizationError) {
+    return {
+      code: 'NORMALIZATION_ERROR',
+      message: 'Provider amount cannot be represented as a canonical shipment value',
+    }
+  }
   if (error instanceof SyncEngineError && error.code === 'PERSISTENCE_ERROR') {
     return {
       code: 'PERSISTENCE_ERROR',
@@ -108,6 +117,7 @@ export default class SyncEngine {
         throw new SyncEngineError('PERSISTENCE_ERROR', 'Unable to start the synchronization run')
       }
       const connector = this.connectorResolver(integration.provider)
+      const normalizer = createShipmentNormalizer(integration.provider)
       let cursor: string | undefined
       const requestedCursors = new Set<string>()
       while (true) {
@@ -123,13 +133,18 @@ export default class SyncEngine {
         try {
           await db.transaction(async (trx) => {
             for (const record of page.records) {
-              await SourceRecord.create(
+              const normalized = normalizer.normalize(record)
+              const sourceRecord = await SourceRecord.create(
                 {
                   syncRunId: run.id,
                   externalId: record.externalId,
                   payload: record.payload,
                   sourceUpdatedAt: record.sourceUpdatedAt,
                 },
+                { client: trx }
+              )
+              await NormalizedShipment.create(
+                { ...normalized, sourceRecordId: sourceRecord.id },
                 { client: trx }
               )
             }
@@ -142,8 +157,9 @@ export default class SyncEngine {
             })
             await progress.save()
           })
-        } catch {
+        } catch (error) {
           run.recordsFailed += page.records.length
+          if (error instanceof NormalizationError) throw error
           throw new SyncEngineError('PERSISTENCE_ERROR', 'Unable to persist the provider page')
         }
         run.recordsPersisted += page.records.length
