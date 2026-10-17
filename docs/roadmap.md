@@ -3,6 +3,8 @@
 Current implemented state: M0–M5. M6 is next and requires an explicit request
 before implementation begins.
 
+The [M6 normalization plan](milestones/m6-normalization.md) defines its future scope.
+
 ## Milestones
 
 - M0 ✅ Infrastructure
