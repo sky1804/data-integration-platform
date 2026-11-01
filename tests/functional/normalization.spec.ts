@@ -9,6 +9,7 @@ import SyncEngine from '#services/sync_engine'
 import { SyncExecutionError } from '#services/sync_engine_errors'
 import type { SourceObservation } from '../../app/integrations/connector.js'
 import Migration from '../../database/migrations/1792195200000_create_normalized_shipments_table.js'
+import ReconciliationMigration from '../../database/migrations/1792281600000_create_reconciliation_tables.js'
 
 const raw = {
   shipmentId: 'SHP-100',
@@ -243,11 +244,15 @@ test.group('M6 canonical persistence and synchronization', (group) => {
     const configured = await integration()
     const run = await SyncRun.create({ integrationId: configured.id, status: 'SUCCESS' })
     const source = await SourceRecord.create({ syncRunId: run.id, externalId: 'OLD', payload: raw })
-    await new Migration(db.connection(), 'm6', false).execDown()
+    // Roll back dependent M7 tables before exercising the original M6 lifecycle.
+    await new ReconciliationMigration(db.connection(), 'm7', false).execDown()
     cleanup(async () => {
       if (!(await db.connection().schema.hasTable('normalized_shipments')))
         await new Migration(db.connection(), 'm6', false).execUp()
+      if (!(await db.connection().schema.hasTable('reconciliation_runs')))
+        await new ReconciliationMigration(db.connection(), 'm7', false).execUp()
     })
+    await new Migration(db.connection(), 'm6', false).execDown()
     assert.isFalse(await db.connection().schema.hasTable('normalized_shipments'))
     const beforeApply = await SourceRecord.findOrFail(source.id)
     assert.deepEqual(beforeApply.payload, raw)

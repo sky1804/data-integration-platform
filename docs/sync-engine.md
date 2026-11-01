@@ -145,5 +145,9 @@ M4 adds asynchronous invocation; M5 adds a second connector. Neither resolves
 these recovery limitations. M6 adds [canonical historical normalization](normalization.md)
 inside each page transaction, preserving those limitations and raw payloads.
 
+M7's separate [ReconciliationEngine](reconciliation.md) compares explicitly selected
+SUCCESS sync runs. This engine does not launch it automatically or change its
+existing synchronization lifecycle to support reconciliation.
+
 References: [Lucid transactions](https://lucid.adonisjs.com/docs/transactions),
 [Lucid testing utilities](https://lucid.adonisjs.com/docs/testing).

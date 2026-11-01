@@ -7,6 +7,25 @@
 import { BaseModel, column } from '@adonisjs/lucid/orm'
 import { DateTime } from 'luxon'
 
+export class DiscrepancySchema extends BaseModel {
+  static $columns = ['carrierNormalizedShipmentId', 'createdAt', 'id', 'reconciliationRunId', 'shipmentKey', 'tmsNormalizedShipmentId', 'type'] as const
+  $columns = DiscrepancySchema.$columns
+  @column()
+  declare carrierNormalizedShipmentId: number | null
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: number
+  @column()
+  declare reconciliationRunId: number
+  @column()
+  declare shipmentKey: string
+  @column()
+  declare tmsNormalizedShipmentId: number | null
+  @column()
+  declare type: string
+}
+
 export class IntegrationSchema extends BaseModel {
   static $columns = ['createdAt', 'enabled', 'id', 'name', 'provider', 'slug', 'updatedAt'] as const
   $columns = IntegrationSchema.$columns
@@ -41,6 +60,39 @@ export class NormalizedShipmentSchema extends BaseModel {
   declare sourceRecordId: number
   @column()
   declare status: string
+}
+
+export class ReconciliationRunSchema extends BaseModel {
+  static $columns = ['carrierRecords', 'carrierSyncRunId', 'comparedRecords', 'createdAt', 'discrepanciesFound', 'errorCode', 'errorMessage', 'finishedAt', 'id', 'startedAt', 'status', 'tmsRecords', 'tmsSyncRunId', 'updatedAt'] as const
+  $columns = ReconciliationRunSchema.$columns
+  @column()
+  declare carrierRecords: number
+  @column()
+  declare carrierSyncRunId: number
+  @column()
+  declare comparedRecords: number
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare discrepanciesFound: number
+  @column()
+  declare errorCode: string | null
+  @column()
+  declare errorMessage: string | null
+  @column.dateTime()
+  declare finishedAt: DateTime | null
+  @column({ isPrimary: true })
+  declare id: number
+  @column.dateTime()
+  declare startedAt: DateTime | null
+  @column()
+  declare status: string
+  @column()
+  declare tmsRecords: number
+  @column()
+  declare tmsSyncRunId: number
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
 }
 
 export class SourceRecordSchema extends BaseModel {

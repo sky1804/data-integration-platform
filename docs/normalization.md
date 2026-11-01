@@ -94,7 +94,8 @@ Currency is absent because neither contract supplies it. Delivery date remains
 raw: TMS deliveryDate and Carrier updatedAt describe different events. There is
 no delivery-date mapping, alerting, retry, lock, recovery, or reconciliation here.
 
-M7 can consume historical projections, follow SourceRecord → SyncRun → Integration
-for provenance, and match shipmentKey. Choosing observations to compare and
-creating discrepancies belong to M7. See [SyncEngine](sync-engine.md),
+M7's [ReconciliationEngine](reconciliation.md) consumes explicit successful
+historical runs, follows SourceRecord → SyncRun → Integration for provenance,
+and matches shipmentKey. It runs independently of normalization and synchronization.
+See [SyncEngine](sync-engine.md),
 [connectors](connectors.md), and [M6 validation](m6-validation.md).

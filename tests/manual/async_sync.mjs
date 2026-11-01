@@ -284,6 +284,55 @@ try {
   })
   console.log('Same HTTP/job/worker executes TMS; both raw schemas remain different: passed')
   console.log('Carrier and TMS each persist 3 raw + 3 canonical historical observations: passed')
+
+  // M7 remains explicitly invoked at service level, after both sync jobs finish.
+  // Exercise the compiled service in this disposable test application's image.
+  const reconciliationOutput = execFileSync(
+    'docker',
+    [
+      'exec',
+      '-i',
+      '-e',
+      `M7_CARRIER_SYNC_RUN_ID=${carrierObservation.runId}`,
+      '-e',
+      `M7_TMS_SYNC_RUN_ID=${tmsObservation.runId}`,
+      api,
+      'node',
+      '--input-type=module',
+      '-',
+    ],
+    {
+      cwd,
+      encoding: 'utf8',
+      timeout: 30000,
+      input: `${boot}
+try {
+  const { default: ReconciliationEngine } = await import('#services/reconciliation_engine')
+  const { default: ReconciliationRun } = await import('#models/reconciliation_run')
+  const before = await ReconciliationRun.all()
+  const run = await new ReconciliationEngine().execute({
+    carrierSyncRunId: Number(process.env.M7_CARRIER_SYNC_RUN_ID),
+    tmsSyncRunId: Number(process.env.M7_TMS_SYNC_RUN_ID),
+  })
+  const discrepancies = await run.related('discrepancies').query().orderBy('id')
+  console.log(JSON.stringify({ before: before.length, status: run.status, counters: [run.carrierRecords, run.tmsRecords, run.comparedRecords, run.discrepanciesFound], discrepancies: discrepancies.map(row => [row.shipmentKey, row.type]) }))
+} finally { await app.terminate() }
+`,
+    }
+  )
+  const reconciliation = JSON.parse(reconciliationOutput.trim().split(/\r?\n/).at(-1))
+  assert.deepEqual(reconciliation, {
+    before: 0,
+    status: 'SUCCESS',
+    counters: [3, 3, 3, 2],
+    discrepancies: [
+      ['SHP-100', 'STATUS_MISMATCH'],
+      ['SHP-101', 'STATUS_MISMATCH'],
+    ],
+  })
+  console.log(
+    'Explicit compiled ReconciliationEngine → SUCCESS, counters 3/3/3/2; no automatic reconciliation: passed'
+  )
   docker('stop', worker)
 
   const acceptedFailure = await dispatch()
